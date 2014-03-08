@@ -1,0 +1,23 @@
+{
+  "name": "disasm",
+  "version": "0.1.0",
+  "description": "Native code disassembly libraries.",
+  "keywords": [
+    "disassembly",
+    "x86"
+  ],
+  "author": "Paul Vick <paul@panopticoncentral.net> (http://www.panopticoncentral.net)",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/panopticoncentral/disasm.git"
+  },
+  "homepage": "https://github.com/panopticoncentral/disasm",
+  "license": "Apache-2.0",
+  "main": "lib/disasm",
+  "devDependencies": {
+    "jake-typescript": "0.1.*"
+  },
+  "engines": {
+    "node": "*"
+  }
+}
