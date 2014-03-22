@@ -1,7 +1,6 @@
 export interface IByteReader
 {
-    current(): number;
-    moveNext(): void;
+    read(): number;
 }
 
 export class LayoutError implements Error
@@ -16,6 +15,7 @@ export class LayoutError implements Error
 
 export enum OpCode
 {
+    Invalid,
     AAA,
     AAS,
     ADD,
@@ -91,7 +91,11 @@ export enum OperandType
 {
     Register,
     Immediate,
-    Segment
+    Segment,
+    Indirect,
+    Addition,
+    Displacement,
+    Scale
 }
 
 export class Operand
@@ -193,6 +197,84 @@ export class ImmediateOperand extends Operand
     public get size(): Size
     {
         return this._size;
+    }
+}
+
+export class AdditionOperand extends Operand
+{
+    private _left: Operand;
+    private _right: Operand;
+
+    constructor(left: Operand, right: Operand)
+    {
+        super(OperandType.Addition);
+        this._left = left;
+        this._right = right;
+    }
+
+    public get left(): Operand
+    {
+        return this._left;
+    }
+
+    public get right(): Operand
+    {
+        return this._right;
+    }
+}
+
+export class IndirectOperand extends Operand
+{
+    private _operand: Operand;
+
+    constructor(operand: Operand)
+    {
+        super(OperandType.Indirect);
+        this._operand = operand;
+    }
+
+    public get operand(): Operand
+    {
+        return this._operand;
+    }
+}
+
+export class DisplacementOperand extends Operand
+{
+    private _value: number;
+
+    constructor(value: number)
+    {
+        super(OperandType.Displacement);
+        this._value = value;
+    }
+
+    public get value(): number
+    {
+        return this._value;
+    }
+}
+
+export class ScaleOperand extends Operand
+{
+    private _index: IndirectOperand;
+    private _scale: number;
+
+    constructor(index: IndirectOperand, scale: number)
+    {
+        super(OperandType.Scale);
+        this._index = index;
+        this._scale = scale;
+    }
+
+    public get index(): IndirectOperand
+    {
+        return this._index;
+    }
+
+    public get scale(): number
+    {
+        return this._scale;
     }
 }
 
@@ -321,82 +403,305 @@ export class Dissassembler
 
     constructor(sizeDefault: Size)
     {
+        if (sizeDefault != Size.Int16 && sizeDefault != Size.Int32)
+        {
+            throw new Error("invalid default size");
+        }
+
         this._sizeDefault = sizeDefault;
     }
 
     private segmentOverride(segment: Segment, reader: IByteReader, state: InstructionState): Instruction
     {
-        reader.moveNext();
         state.setSegmentOverride(segment);
         return this.firstByte(reader, state);
     }
 
-    private readImmediate(reader: IByteReader, size: Size): ImmediateOperand
+    private readUnsigned(reader: IByteReader, size: Size): number
     {
         var value: number = 0;
         for (var index: number = 0; index < <number>size; index++)
         {
-            value += reader.current() << (8 * index);
-            reader.moveNext();
+            value += reader.read() << (8 * index);
         }
 
-        return new ImmediateOperand(value, size);
+        return value;
     }
 
-    private readReg(reader: IByteReader, size: Size): RegisterOperand
+    private readSigned(reader: IByteReader, size: Size): number
     {
-        return RegisterOperand.getRegister((((reader.current() >> 3) & 0x7) * 3) + size);
+        var value: number = 0;
+        for (var index: number = 0; index < <number>size - 1; index++)
+        {
+            value += reader.read() << (8 * index);
+        }
+
+        var lastByte: number = reader.read();
+        value += (lastByte & ~0x80) << (8 * index);
+
+        if (lastByte & 0x80)
+        {
+            value = -value;
+        }
+
+        return value;
     }
 
-    private readModrm(reader: IByteReader, size: Size): RegisterOperand
+    private readDisplacement(reader: IByteReader, size: Size): DisplacementOperand
     {
-        var mod: number = reader.current() >> 6;
-        var rm: number = reader.current() & 0x7;
+        return new DisplacementOperand(this.readSigned(reader, size));
+    }
+
+    private readImmediate(reader: IByteReader, size: Size): ImmediateOperand
+    {
+        return new ImmediateOperand(this.readUnsigned(reader, size), size);
+    }
+
+    private decodeReg(modrm: number, size: Size): RegisterOperand
+    {
+        var reg: number = (modrm >> 3) & 0x7;
+        return RegisterOperand.getRegister((reg * 3) + size);
+    }
+
+    private decodeSib(reader: IByteReader, sib: number, operandSize: Size, addressMode: Size): Operand
+    {
+        var scale: number = (sib >> 6) & 0x3;
+        var index: number = (sib >> 3) & 0x7;
+        var base: number = sib & 0x7;
+
+        var baseRegister: Register = <Register>((base * 3) + 3);
+        var indexRegister: Register = <Register>((index * 3) + 3);
+        var scaleValue: number = 1 << scale;
+        var scaleOperand: ScaleOperand = null;
+
+        if (indexRegister != Register.ESP)
+        {
+            scaleOperand = new ScaleOperand(new IndirectOperand(RegisterOperand.getRegister(indexRegister)), scaleValue);
+        }
+
+        var baseOperand: RegisterOperand = RegisterOperand.getRegister(baseRegister);
+
+        if (baseRegister != Register.EBP)
+        {
+            if (scaleOperand)
+            {
+                return new AdditionOperand(baseOperand, scaleOperand);
+            }
+            else
+            {
+                return baseOperand;
+            }
+        }
+
+        var displacementOperand: DisplacementOperand;
+
+        switch (scale)
+        {
+            case 0x1:
+                displacementOperand = this.readDisplacement(reader, Size.Int32);
+                baseOperand = null;
+                break;
+
+            case 0x2:
+                displacementOperand = this.readDisplacement(reader, Size.Int8);
+                break;
+
+            case 0x4:
+                displacementOperand = this.readDisplacement(reader, Size.Int32);
+                break;
+
+            default:
+            case 0x8:
+                throw new LayoutError("invalid sib byte");
+        }
+
+        if (scaleOperand && baseOperand)
+        {
+            return new AdditionOperand(scaleOperand, new AdditionOperand(baseOperand, displacementOperand));
+        }
+        else if (scaleOperand)
+        {
+            return new AdditionOperand(scaleOperand, displacementOperand);
+        }
+        else if (baseOperand)
+        {
+            return new AdditionOperand(baseOperand, displacementOperand);
+        }
+
+        return displacementOperand;
+    }
+
+    private decodeModrm(reader: IByteReader, modrm: number, operandSize: Size, addressMode: Size): Operand
+    {
+        var mod: number = modrm >> 6;
+        var rm: number = modrm & 0x7;
+        var result: Operand = null;
+
+        if (mod == 0x3)
+        {
+            return RegisterOperand.getRegister((rm * 3) + operandSize);
+        }
+
+        if (addressMode == Size.Int16)
+        {
+            switch (rm)
+            {
+                case 0x0:
+                    result = new IndirectOperand(
+                        new AdditionOperand(
+                            RegisterOperand.getRegister(Register.BX),
+                            RegisterOperand.getRegister(Register.SI)));
+                    break;
+
+                case 0x1:
+                    result = new IndirectOperand(
+                        new AdditionOperand(
+                            RegisterOperand.getRegister(Register.BX),
+                            RegisterOperand.getRegister(Register.DI)));
+                    break;
+
+                case 0x2:
+                    result = new IndirectOperand(
+                        new AdditionOperand(
+                            RegisterOperand.getRegister(Register.BP),
+                            RegisterOperand.getRegister(Register.SI)));
+                    break;
+
+                case 0x3:
+                    result = new IndirectOperand(
+                        new AdditionOperand(
+                            RegisterOperand.getRegister(Register.BP),
+                            RegisterOperand.getRegister(Register.DI)));
+                    break;
+
+                case 0x4:
+                    result = new IndirectOperand(
+                        RegisterOperand.getRegister(Register.SI));
+                    break;
+
+                case 0x5:
+                    result = new IndirectOperand(
+                        RegisterOperand.getRegister(Register.DI));
+                    break;
+
+                case 0x6:
+                    if (mod == 0x0)
+                    {
+                        result = this.readDisplacement(reader, Size.Int16);
+                    }
+                    else
+                    {
+                        result = new IndirectOperand(
+                            RegisterOperand.getRegister(Register.BP));
+                    }
+                    break;
+
+                case 0x7:
+                    result = new IndirectOperand(
+                        RegisterOperand.getRegister(Register.BX));
+                    break;
+            }
+        }
+        else
+        {
+            switch (rm)
+            {
+                case 0x0:
+                    result = new IndirectOperand(
+                        RegisterOperand.getRegister(Register.EAX));
+                    break;
+
+                case 0x1:
+                    result = new IndirectOperand(
+                        RegisterOperand.getRegister(Register.ECX));
+                    break;
+
+                case 0x2:
+                    result = new IndirectOperand(
+                        RegisterOperand.getRegister(Register.EDX));
+                    break;
+
+                case 0x3:
+                    result = new IndirectOperand(
+                        RegisterOperand.getRegister(Register.EBX));
+                    break;
+
+                case 0x4:
+                    result = this.decodeSib(reader, reader.read(), operandSize, addressMode);
+                    break;
+
+                case 0x5:
+                    if (mod == 0x0)
+                    {
+                        result = this.readDisplacement(reader, Size.Int32);
+                    }
+                    else
+                    {
+                        result = new IndirectOperand(
+                            RegisterOperand.getRegister(Register.EBP));
+                    }
+                    break;
+
+                case 0x6:
+                    result = new IndirectOperand(
+                        RegisterOperand.getRegister(Register.ESI));
+                    break;
+
+                case 0x7:
+                    result = new IndirectOperand(
+                        RegisterOperand.getRegister(Register.EDI));
+                    break;
+            }
+        }
 
         switch (mod)
         {
             case 0x0:
+                // Nothing
                 break;
+
             case 0x1:
+                result = new AdditionOperand(result, this.readDisplacement(reader, Size.Int8));
                 break;
+
             case 0x2:
+                result = new AdditionOperand(result, this.readDisplacement(reader, addressMode));
                 break;
-            case 0x3:
-                return RegisterOperand.getRegister((rm * 3) + size);
         }
+
+        return result;
     }
 
     private arithmeticOperation(opCode: OpCode, index: number, reader: IByteReader, state: InstructionState): Instruction
     {
-        reader.moveNext();
-
         var source: Operand;
         var destination: Operand;
+        var modrm: number;
 
         switch (index)
         {
             case 0x0: // Eb, Gb
-                source = this.readReg(reader, Size.Int8);
-                destination = this.readModrm(reader, Size.Int8);
-                reader.moveNext();
+                modrm = reader.read();
+                source = this.decodeReg(modrm, Size.Int8);
+                destination = this.decodeModrm(reader, modrm, Size.Int8, state.addressMode);
                 break;
 
             case 0x1: // Ev, Gv
-                source = this.readReg(reader, state.operandSize);
-                destination = this.readModrm(reader, state.operandSize);
-                reader.moveNext();
+                modrm = reader.read();
+                source = this.decodeReg(modrm, state.operandSize);
+                destination = this.decodeModrm(reader, modrm, state.operandSize, state.addressMode);
                 break;
 
             case 0x2: // Gb, Eb
-                source = this.readModrm(reader, Size.Int8);
-                destination = this.readReg(reader, Size.Int8);
-                reader.moveNext();
+                modrm = reader.read();
+                source = this.decodeModrm(reader, modrm, Size.Int8, state.addressMode);
+                destination = this.decodeReg(modrm, Size.Int8);
                 break;
 
             case 0x3: // Gv, Ev
-                source = this.readModrm(reader, state.operandSize);
-                destination = this.readReg(reader, state.operandSize);
-                reader.moveNext();
+                modrm = reader.read();
+                source = this.decodeModrm(reader, modrm, state.operandSize, state.addressMode);
+                destination = this.decodeReg(modrm, state.operandSize);
                 break;
 
             case 0x4: // AL, Ib
@@ -419,8 +724,9 @@ export class Dissassembler
     private firstByte(reader: IByteReader, state: InstructionState): Instruction
     {
         var instr: Instruction;
+        var opcode: number = reader.read();
 
-        switch (reader.current())
+        switch (opcode)
         {
             case 0x00: // ADD Eb, Gb
             case 0x01: // ADD Ev, Gv
@@ -428,7 +734,7 @@ export class Dissassembler
             case 0x03: // ADD Gv, Ev
             case 0x04: // ADD AL, Ib
             case 0x05: // ADD rAX, Iz
-                return this.arithmeticOperation(OpCode.ADD, reader.current() - 0x0, reader, state);
+                return this.arithmeticOperation(OpCode.ADD, opcode - 0x0, reader, state);
 
             case 0x06: // PUSH ES
                 return new Instruction(OpCode.PUSH, SegmentOperand.getSegment(Segment.ES));
@@ -442,7 +748,7 @@ export class Dissassembler
             case 0x0B: // OR Gv, Ev
             case 0x0C: // OR AL, Ib
             case 0x0D: // OR rAX, Iz
-                return this.arithmeticOperation(OpCode.OR, reader.current() - 0x8, reader, state);
+                return this.arithmeticOperation(OpCode.OR, opcode - 0x8, reader, state);
 
             case 0x0E: // PUSH CS
                 return new Instruction(OpCode.PUSH, SegmentOperand.getSegment(Segment.CS));
@@ -456,7 +762,7 @@ export class Dissassembler
             case 0x13: // ADC Gv, Ev
             case 0x14: // ADC AL, Ib
             case 0x15: // ADC rAX, Iz
-                return this.arithmeticOperation(OpCode.ADC, reader.current() - 0x10, reader, state);
+                return this.arithmeticOperation(OpCode.ADC, opcode - 0x10, reader, state);
 
             case 0x16: // PUSH SS
                 return new Instruction(OpCode.PUSH, SegmentOperand.getSegment(Segment.SS));
@@ -470,7 +776,7 @@ export class Dissassembler
             case 0x1B: // SBB Gv, Ev
             case 0x1C: // SBB AL, Ib
             case 0x1D: // SBB rAX, Iz
-                return this.arithmeticOperation(OpCode.SBB, reader.current() - 0x18, reader, state);
+                return this.arithmeticOperation(OpCode.SBB, opcode - 0x18, reader, state);
 
             case 0x1E: // PUSH DS
                 return new Instruction(OpCode.PUSH, SegmentOperand.getSegment(Segment.DS));
@@ -484,7 +790,7 @@ export class Dissassembler
             case 0x23: // AND Gv, Ev
             case 0x24: // AND AL, Ib
             case 0x25: // AND rAX, Iz
-                return this.arithmeticOperation(OpCode.AND, reader.current() - 0x20, reader, state);
+                return this.arithmeticOperation(OpCode.AND, opcode - 0x20, reader, state);
 
             case 0x26: // ES segment override
                 return this.segmentOverride(Segment.ES, reader, state);
@@ -498,7 +804,7 @@ export class Dissassembler
             case 0x2B: // SUB Gv, Ev
             case 0x2C: // SUB AL, Ib
             case 0x2D: // SUB rAX, Iz
-                return this.arithmeticOperation(OpCode.SUB, reader.current() - 0x28, reader, state);
+                return this.arithmeticOperation(OpCode.SUB, opcode - 0x28, reader, state);
 
             case 0x2E: // CS segment override
                 return this.segmentOverride(Segment.CS, reader, state);
@@ -512,7 +818,7 @@ export class Dissassembler
             case 0x33: // XOR Gv, Ev
             case 0x34: // XOR AL, Ib
             case 0x35: // XOR rAX, Iz
-                return this.arithmeticOperation(OpCode.XOR, reader.current() - 0x30, reader, state);
+                return this.arithmeticOperation(OpCode.XOR, opcode - 0x30, reader, state);
 
             case 0x36: // SS segment override
                 return this.segmentOverride(Segment.SS, reader, state);
@@ -526,7 +832,7 @@ export class Dissassembler
             case 0x3B: // CMP Gv, Ev
             case 0x3C: // CMP AL, Ib
             case 0x3D: // CMP rAX, Iz
-                return this.arithmeticOperation(OpCode.CMP, reader.current() - 0x38, reader, state);
+                return this.arithmeticOperation(OpCode.CMP, opcode - 0x38, reader, state);
 
             case 0x3E: // DS segment override
                 return this.segmentOverride(Segment.DS, reader, state);
@@ -541,36 +847,33 @@ export class Dissassembler
                 return this.segmentOverride(Segment.GS, reader, state);
 
             case 0x66: // Operand size prefix
-                reader.moveNext();
                 state.toggleOperandSize();
                 return this.firstByte(reader, state);
 
             case 0x67: // Address size prefix
-                reader.moveNext();
                 state.toggleAddressMode();
                 return this.firstByte(reader, state);
 
             case 0xF0: // LOCK prefix
-                reader.moveNext();
                 state.setPrefix(Prefix.LOCK);
                 instr = this.firstByte(reader, state);
                 // TODO: Check legal LOCK prefix
                 return instr;
 
             case 0xF2: // REPNE prefix
-                reader.moveNext();
                 state.setPrefix(Prefix.REPNE);
                 instr = this.firstByte(reader, state);
                 // TODO: Check legal REPNE prefix
                 return instr;
 
             case 0xF3: // REP/REPE prefix
-                reader.moveNext();
                 state.setPrefix(Prefix.REPE);
                 instr = this.firstByte(reader, state);
                 // TOD: Check legal REP/REPE prefix
                 return instr;
         }
+
+        return new Instruction(OpCode.Invalid);
     }
 
     public disassemble(reader: IByteReader): Instruction
