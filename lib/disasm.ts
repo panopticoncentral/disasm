@@ -1,20 +1,16 @@
-export interface IByteReader
-{
+export interface IByteReader {
     read(): number;
 }
 
-export class LayoutError implements Error
-{
+export class LayoutError implements Error {
     public name: string;
 
-    constructor(public message: string)
-    {
+    constructor(public message: string) {
         this.name = "LayoutError";
     }
 }
 
-export enum OpCode
-{
+export enum OpCode {
     Invalid,
     AAA,
     AAS,
@@ -32,15 +28,13 @@ export enum OpCode
     XOR
 }
 
-export enum Size
-{
+export enum Size {
     Int8,
     Int16,
-    Int32 
+    Int32
 }
 
-export enum Segment
-{
+export enum Segment {
     None,
     CS,
     SS,
@@ -50,16 +44,14 @@ export enum Segment
     GS
 }
 
-export enum Prefix
-{
+export enum Prefix {
     None,
     REPE,
     REPNE,
     LOCK
 }
 
-export enum Register
-{
+export enum Register {
     AL,
     AX,
     EAX,
@@ -87,8 +79,7 @@ export enum Register
     Max = EDI
 }
 
-export enum OperandType
-{
+export enum OperandType {
     Register,
     Immediate,
     Segment,
@@ -98,217 +89,178 @@ export enum OperandType
     Scale
 }
 
-export class Operand
-{
+export class Operand {
     private _type: OperandType;
 
-    constructor(type: OperandType)
-    {
+    constructor(type: OperandType) {
         this._type = type;
     }
 
-    public get type(): OperandType
-    {
+    public get type(): OperandType {
         return this._type;
     }
 }
 
-export class RegisterOperand extends Operand
-{
+export class RegisterOperand extends Operand {
     private static _registerOperands: RegisterOperand[];
     private _reg: Register;
 
-    public static getRegister(reg: Register): RegisterOperand
-    {
-        if (!this._registerOperands)
-        {
+    public static getRegister(reg: Register): RegisterOperand {
+        if (!this._registerOperands) {
             this._registerOperands = [];
         }
 
-        if (!this._registerOperands[reg])
-        {
+        if (!this._registerOperands[reg]) {
             this._registerOperands[reg] = new RegisterOperand(reg);
         }
 
         return this._registerOperands[reg];
     }
 
-    constructor(reg: Register)
-    {
+    constructor(reg: Register) {
         super(OperandType.Register);
         this._reg = reg;
     }
 
-    public get register(): Register
-    {
+    public get register(): Register {
         return this._reg;
     }
 }
 
-export class SegmentOperand extends Operand
-{
+export class SegmentOperand extends Operand {
     private static _segmentOperands: SegmentOperand[];
     private _seg: Segment;
 
-    public static getSegment(seg: Segment): SegmentOperand
-    {
-        if (!this._segmentOperands)
-        {
+    public static getSegment(seg: Segment): SegmentOperand {
+        if (!this._segmentOperands) {
             this._segmentOperands = [];
         }
 
-        if (!this._segmentOperands[seg])
-        {
+        if (!this._segmentOperands[seg]) {
             this._segmentOperands[seg] = new SegmentOperand(seg);
         }
 
         return this._segmentOperands[seg];
     }
 
-    constructor(seg: Segment)
-    {
+    constructor(seg: Segment) {
         super(OperandType.Segment);
         this._seg = seg;
     }
 
-    public get segment(): Segment
-    {
+    public get segment(): Segment {
         return this._seg;
     }
 }
 
-export class ImmediateOperand extends Operand
-{
+export class ImmediateOperand extends Operand {
     private _value: number;
     private _size: Size;
 
-    constructor(value: number, size: Size)
-    {
+    constructor(value: number, size: Size) {
         super(OperandType.Immediate);
         this._size = size;
         this._value = value;
     }
 
-    public get value(): number
-    {
+    public get value(): number {
         return this._value;
     }
 
-    public get size(): Size
-    {
+    public get size(): Size {
         return this._size;
     }
 }
 
-export class AdditionOperand extends Operand
-{
+export class AdditionOperand extends Operand {
     private _left: Operand;
     private _right: Operand;
 
-    constructor(left: Operand, right: Operand)
-    {
+    constructor(left: Operand, right: Operand) {
         super(OperandType.Addition);
         this._left = left;
         this._right = right;
     }
 
-    public get left(): Operand
-    {
+    public get left(): Operand {
         return this._left;
     }
 
-    public get right(): Operand
-    {
+    public get right(): Operand {
         return this._right;
     }
 }
 
-export class IndirectOperand extends Operand
-{
+export class IndirectOperand extends Operand {
     private _operand: Operand;
 
-    constructor(operand: Operand)
-    {
+    constructor(operand: Operand) {
         super(OperandType.Indirect);
         this._operand = operand;
     }
 
-    public get operand(): Operand
-    {
+    public get operand(): Operand {
         return this._operand;
     }
 }
 
-export class DisplacementOperand extends Operand
-{
+export class DisplacementOperand extends Operand {
     private _value: number;
 
-    constructor(value: number)
-    {
+    constructor(value: number) {
         super(OperandType.Displacement);
         this._value = value;
     }
 
-    public get value(): number
-    {
+    public get value(): number {
         return this._value;
     }
 }
 
-export class ScaleOperand extends Operand
-{
+export class ScaleOperand extends Operand {
     private _index: IndirectOperand;
     private _scale: number;
 
-    constructor(index: IndirectOperand, scale: number)
-    {
+    constructor(index: IndirectOperand, scale: number) {
         super(OperandType.Scale);
         this._index = index;
         this._scale = scale;
     }
 
-    public get index(): IndirectOperand
-    {
+    public get index(): IndirectOperand {
         return this._index;
     }
 
-    public get scale(): number
-    {
+    public get scale(): number {
         return this._scale;
     }
 }
 
-export class Instruction
-{
+export class Instruction {
     private _opCode: OpCode;
     private _source: Operand;
     private _destination: Operand;
 
-    constructor(opCode: OpCode, source: Operand = null, destination: Operand = null)
-    {
+    constructor(opCode: OpCode, source: Operand = null, destination: Operand = null) {
         this._opCode = opCode;
         this._source = source;
         this._destination = destination;
     }
 
-    public get opCode(): OpCode
-    {
+    public get opCode(): OpCode {
         return this._opCode;
     }
 
-    public get source(): Operand
-    {
+    public get source(): Operand {
         return this._source;
     }
 
-    public get destination(): Operand
-    {
+    public get destination(): Operand {
         return this._destination;
     }
 }
 
-class InstructionState
-{
+class InstructionState {
     private _addressMode: Size;
     private _addressModeSet: boolean;
     private _operandSize: Size;
@@ -316,8 +268,7 @@ class InstructionState
     private _segmentOverride: Segment;
     private _prefix: Prefix;
 
-    constructor(sizeDefault: Size)
-    {
+    constructor(sizeDefault: Size) {
         this._addressMode = sizeDefault;
         this._addressModeSet = false;
         this._operandSize = sizeDefault;
@@ -326,34 +277,27 @@ class InstructionState
         this._prefix = Prefix.None;
     }
 
-    public get addressMode(): Size
-    {
+    public get addressMode(): Size {
         return this._addressMode;
     }
 
-    public get operandSize(): Size
-    {
+    public get operandSize(): Size {
         return this._operandSize;
     }
 
-    public get segmentOverride(): Segment
-    {
+    public get segmentOverride(): Segment {
         return this._segmentOverride;
     }
 
-    public get prefix(): Prefix
-    {
+    public get prefix(): Prefix {
         return this._prefix;
     }
 
-    public toggleAddressMode(): void
-    {
-        if (this._addressModeSet)
-        {
+    public toggleAddressMode(): void {
+        if (this._addressModeSet) {
             throw new LayoutError("multiple address mode prefixes");
         }
-        else
-        {
+        else {
             this._addressModeSet = true;
         }
 
@@ -361,14 +305,11 @@ class InstructionState
         Size.Int32 : Size.Int16;
     }
 
-    public toggleOperandSize(): void
-    {
-        if (this._operandSizeSet)
-        {
+    public toggleOperandSize(): void {
+        if (this._operandSizeSet) {
             throw new LayoutError("multiple operand size prefixes");
         }
-        else
-        {
+        else {
             this._operandSizeSet = true;
         }
 
@@ -376,20 +317,16 @@ class InstructionState
         Size.Int32 : Size.Int16;
     }
 
-    public setSegmentOverride(segment: Segment): void
-    {
-        if (this._segmentOverride != Segment.None)
-        {
+    public setSegmentOverride(segment: Segment): void {
+        if (this._segmentOverride != Segment.None) {
             throw new LayoutError("multiple segment override prefixes");
         }
 
         this._segmentOverride = segment;
     }
 
-    public setPrefix(prefix: Prefix): void
-    {
-        if (this._prefix != Prefix.None)
-        {
+    public setPrefix(prefix: Prefix): void {
+        if (this._prefix != Prefix.None) {
             throw new LayoutError("multiple opcode prefixes");
         }
 
@@ -397,74 +334,61 @@ class InstructionState
     }
 }
 
-export class Dissassembler
-{
+export class Dissassembler {
     private _sizeDefault: Size;
 
-    constructor(sizeDefault: Size)
-    {
-        if (sizeDefault != Size.Int16 && sizeDefault != Size.Int32)
-        {
+    constructor(sizeDefault: Size) {
+        if (sizeDefault != Size.Int16 && sizeDefault != Size.Int32) {
             throw new Error("invalid default size");
         }
 
         this._sizeDefault = sizeDefault;
     }
 
-    private segmentOverride(segment: Segment, reader: IByteReader, state: InstructionState): Instruction
-    {
+    private segmentOverride(segment: Segment, reader: IByteReader, state: InstructionState): Instruction {
         state.setSegmentOverride(segment);
         return this.firstByte(reader, state);
     }
 
-    private readUnsigned(reader: IByteReader, size: Size): number
-    {
+    private readUnsigned(reader: IByteReader, size: Size): number {
         var value: number = 0;
-        for (var index: number = 0; index < <number>size; index++)
-        {
+        for (var index: number = 0; index < <number>size; index++) {
             value += reader.read() << (8 * index);
         }
 
         return value;
     }
 
-    private readSigned(reader: IByteReader, size: Size): number
-    {
+    private readSigned(reader: IByteReader, size: Size): number {
         var value: number = 0;
-        for (var index: number = 0; index < <number>size - 1; index++)
-        {
+        for (var index: number = 0; index < <number>size - 1; index++) {
             value += reader.read() << (8 * index);
         }
 
         var lastByte: number = reader.read();
         value += (lastByte & ~0x80) << (8 * index);
 
-        if (lastByte & 0x80)
-        {
+        if (lastByte & 0x80) {
             value = -value;
         }
 
         return value;
     }
 
-    private readDisplacement(reader: IByteReader, size: Size): DisplacementOperand
-    {
+    private readDisplacement(reader: IByteReader, size: Size): DisplacementOperand {
         return new DisplacementOperand(this.readSigned(reader, size));
     }
 
-    private readImmediate(reader: IByteReader, size: Size): ImmediateOperand
-    {
+    private readImmediate(reader: IByteReader, size: Size): ImmediateOperand {
         return new ImmediateOperand(this.readUnsigned(reader, size), size);
     }
 
-    private decodeReg(modrm: number, size: Size): RegisterOperand
-    {
+    private decodeReg(modrm: number, size: Size): RegisterOperand {
         var reg: number = (modrm >> 3) & 0x7;
         return RegisterOperand.getRegister((reg * 3) + size);
     }
 
-    private decodeSib(reader: IByteReader, sib: number, operandSize: Size, addressMode: Size): Operand
-    {
+    private decodeSib(reader: IByteReader, sib: number, operandSize: Size, addressMode: Size): Operand {
         var scale: number = (sib >> 6) & 0x3;
         var index: number = (sib >> 3) & 0x7;
         var base: number = sib & 0x7;
@@ -474,29 +398,24 @@ export class Dissassembler
         var scaleValue: number = 1 << scale;
         var scaleOperand: ScaleOperand = null;
 
-        if (indexRegister != Register.ESP)
-        {
+        if (indexRegister != Register.ESP) {
             scaleOperand = new ScaleOperand(new IndirectOperand(RegisterOperand.getRegister(indexRegister)), scaleValue);
         }
 
         var baseOperand: RegisterOperand = RegisterOperand.getRegister(baseRegister);
 
-        if (baseRegister != Register.EBP)
-        {
-            if (scaleOperand)
-            {
+        if (baseRegister != Register.EBP) {
+            if (scaleOperand) {
                 return new AdditionOperand(baseOperand, scaleOperand);
             }
-            else
-            {
+            else {
                 return baseOperand;
             }
         }
 
         var displacementOperand: DisplacementOperand;
 
-        switch (scale)
-        {
+        switch (scale) {
             case 0x1:
                 displacementOperand = this.readDisplacement(reader, Size.Int32);
                 baseOperand = null;
@@ -515,37 +434,30 @@ export class Dissassembler
                 throw new LayoutError("invalid sib byte");
         }
 
-        if (scaleOperand && baseOperand)
-        {
+        if (scaleOperand && baseOperand) {
             return new AdditionOperand(scaleOperand, new AdditionOperand(baseOperand, displacementOperand));
         }
-        else if (scaleOperand)
-        {
+        else if (scaleOperand) {
             return new AdditionOperand(scaleOperand, displacementOperand);
         }
-        else if (baseOperand)
-        {
+        else if (baseOperand) {
             return new AdditionOperand(baseOperand, displacementOperand);
         }
 
         return displacementOperand;
     }
 
-    private decodeModrm(reader: IByteReader, modrm: number, operandSize: Size, addressMode: Size): Operand
-    {
+    private decodeModrm(reader: IByteReader, modrm: number, operandSize: Size, addressMode: Size): Operand {
         var mod: number = modrm >> 6;
         var rm: number = modrm & 0x7;
         var result: Operand = null;
 
-        if (mod == 0x3)
-        {
+        if (mod == 0x3) {
             return RegisterOperand.getRegister((rm * 3) + operandSize);
         }
 
-        if (addressMode == Size.Int16)
-        {
-            switch (rm)
-            {
+        if (addressMode == Size.Int16) {
+            switch (rm) {
                 case 0x0:
                     result = new IndirectOperand(
                         new AdditionOperand(
@@ -585,12 +497,10 @@ export class Dissassembler
                     break;
 
                 case 0x6:
-                    if (mod == 0x0)
-                    {
+                    if (mod == 0x0) {
                         result = this.readDisplacement(reader, Size.Int16);
                     }
-                    else
-                    {
+                    else {
                         result = new IndirectOperand(
                             RegisterOperand.getRegister(Register.BP));
                     }
@@ -602,10 +512,8 @@ export class Dissassembler
                     break;
             }
         }
-        else
-        {
-            switch (rm)
-            {
+        else {
+            switch (rm) {
                 case 0x0:
                     result = new IndirectOperand(
                         RegisterOperand.getRegister(Register.EAX));
@@ -631,12 +539,10 @@ export class Dissassembler
                     break;
 
                 case 0x5:
-                    if (mod == 0x0)
-                    {
+                    if (mod == 0x0) {
                         result = this.readDisplacement(reader, Size.Int32);
                     }
-                    else
-                    {
+                    else {
                         result = new IndirectOperand(
                             RegisterOperand.getRegister(Register.EBP));
                     }
@@ -654,8 +560,7 @@ export class Dissassembler
             }
         }
 
-        switch (mod)
-        {
+        switch (mod) {
             case 0x0:
                 // Nothing
                 break;
@@ -672,14 +577,12 @@ export class Dissassembler
         return result;
     }
 
-    private arithmeticOperation(opCode: OpCode, index: number, reader: IByteReader, state: InstructionState): Instruction
-    {
+    private arithmeticOperation(opCode: OpCode, index: number, reader: IByteReader, state: InstructionState): Instruction {
         var source: Operand;
         var destination: Operand;
         var modrm: number;
 
-        switch (index)
-        {
+        switch (index) {
             case 0x0: // Eb, Gb
                 modrm = reader.read();
                 source = this.decodeReg(modrm, Size.Int8);
@@ -721,13 +624,11 @@ export class Dissassembler
         return new Instruction(opCode, source, destination);
     }
 
-    private firstByte(reader: IByteReader, state: InstructionState): Instruction
-    {
+    private firstByte(reader: IByteReader, state: InstructionState): Instruction {
         var instr: Instruction;
         var opcode: number = reader.read();
 
-        switch (opcode)
-        {
+        switch (opcode) {
             case 0x00: // ADD Eb, Gb
             case 0x01: // ADD Ev, Gv
             case 0x02: // ADD Gb, Eb
@@ -876,8 +777,7 @@ export class Dissassembler
         return new Instruction(OpCode.Invalid);
     }
 
-    public disassemble(reader: IByteReader): Instruction
-    {
+    public disassemble(reader: IByteReader): Instruction {
         return this.firstByte(reader, new InstructionState(this._sizeDefault));
     }
 }
