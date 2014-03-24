@@ -22,10 +22,19 @@ export enum OpCode {
     BTC,
     BTR,
     BTS,
+    CALL,
+    CBW,
+    CLC,
+    CLD,
+    CLI,
+    CMC,
     CMP,
+    CMPS,
+    CWD,
     DAA,
     DAS,
     DEC,
+    HLT,
     INC,
     IMUL,
     INS,
@@ -45,19 +54,32 @@ export enum OpCode {
     JNL,
     JLE,
     JNLE,
+    LAHF,
     LEA,
+    LODS,
     MOV,
+    MOVS,
     NEG,
+    NOP,
     NOT,
     OR,
     OUTS,
     POP,
     POPA,
+    POPF,
     PUSH,
     PUSHA,
+    PUSHF,
+    SAHF,
     SBB,
+    SCAS,
+    STC,
+    STD,
+    STI,
+    STOS,
     SUB,
     TEST,
+    WAIT,
     XCHG,
     XOR
 }
@@ -113,7 +135,8 @@ export enum OperandType {
     Indirect,
     Addition,
     Scale,
-    Repeat
+    Repeat,
+    Call
 }
 
 export class Operand {
@@ -216,6 +239,31 @@ export class ImmediateOperand extends Operand {
 
     public get value(): number {
         return this._value;
+    }
+
+    public get size(): Size {
+        return this._size;
+    }
+}
+
+export class CallOperand extends Operand {
+    private _segmentValue: number;
+    private _offsetValue: number;
+    private _size: Size;
+
+    constructor(segmentValue: number, offsetValue: number, size: Size) {
+        super(OperandType.Call);
+        this._segmentValue = segmentValue;
+        this._offsetValue = offsetValue;
+        this._size = size;
+    }
+
+    public get segmentValue(): number {
+        return this._segmentValue;
+    }
+
+    public get offsetValue(): number {
+        return this._offsetValue;
     }
 
     public get size(): Size {
@@ -559,13 +607,16 @@ export class Dissassembler {
         return this.firstByte(reader, state.setSegmentOverride(segment));
     }
 
-    private immediateOperand(reader: IByteReader, size: Size): ImmediateOperand {
+    private readImmediate(reader: IByteReader, size: Size): number {
         var value: number = 0;
         for (var index: number = 0; index < <number>size; index++) {
             value += reader.read() << (8 * index);
         }
+        return value;
+    }
 
-        return new ImmediateOperand(value, size);
+    private immediateOperand(reader: IByteReader, size: Size): ImmediateOperand {
+        return new ImmediateOperand(this.readImmediate(reader, size), size);
     }
 
     private displacementOperand(reader: IByteReader, size: Size): ImmediateOperand {
@@ -592,6 +643,10 @@ export class Dissassembler {
         return SegmentOperand.getSegment(seg);
     }
 
+    private decodeRegister(reg: number, state: InstructionState): RegisterOperand {
+        return RegisterOperand.getRegister((reg * 3) + state.operandSize);
+    }
+
     private decodeReg(modrm: number, state: InstructionState): Operand {
         var reg: number = (modrm >> 3) & 0x7;
         
@@ -605,30 +660,28 @@ export class Dissassembler {
         }
 
         if (!state.isSegmentOperation) {
-            return this.registerOperand((reg * 3) + state.operandSize);
+            return this.decodeRegister(reg, state);
         }
         else {
             return this.segmentOperand(reg);
         }
     }
 
-    private decodeSib(reader: IByteReader, sib: number): Operand {
+    private decodeSib(reader: IByteReader, sib: number, state: InstructionState): Operand {
         var scale: number = (sib >> 6) & 0x3;
         var index: number = (sib >> 3) & 0x7;
         var base: number = sib & 0x7;
 
-        var baseRegister: Register = <Register>((base * 3) + 3);
-        var indexRegister: Register = <Register>((index * 3) + 3);
         var scaleValue: number = 1 << scale;
         var scaleOperand: ScaleOperand = null;
 
-        if (indexRegister != Register.ESP && scale > 0) {
-            scaleOperand = this.registerOperand(indexRegister).scaleBy(scaleValue);
+        if (index != 0x4 && scale > 0) {
+            scaleOperand = this.decodeRegister(index, state).scaleBy(scaleValue);
         }
 
-        var baseOperand: RegisterOperand = this.registerOperand(baseRegister);
+        var baseOperand: RegisterOperand = this.decodeRegister(base, state);
 
-        if (baseRegister != Register.EBP) {
+        if (base != 0x5) {
             if (scaleOperand) {
                 return baseOperand.add(scaleOperand);
             }
@@ -681,7 +734,7 @@ export class Dissassembler {
                 (state.sourceMustBeMemory && state.operandsReversed)) {
                 throw new LayoutError("expected memory operand");
             }
-            return this.registerOperand((rm * 3) + state.operandSize);
+            return this.decodeRegister(rm, state);
         }
 
         if (state.addressMode == Size.Int16) {
@@ -725,16 +778,14 @@ export class Dissassembler {
             }
         }
         else {
-            var rmRegister: Register = <Register>((rm * 3) + 3);
-
-            if (rmRegister == Register.ESP) {
-                result = this.decodeSib(reader, reader.read());
+            if (rm == 0x4) {
+                result = this.decodeSib(reader, reader.read(), state);
             }
-            else if (rmRegister == Register.EBP && mod == 0x00) {
+            else if (rm == 0x5 && mod == 0x00) {
                 result = this.displacementOperand(reader, Size.Int32);
             }
             else {
-                result = this.registerOperand(rmRegister);
+                result = this.decodeRegister(rm, state);
             }
         }
 
@@ -783,7 +834,7 @@ export class Dissassembler {
                 return new Instruction(
                 opCode,
                 state.isLocked,
-                this.registerOperand(Register.AL + state.operandSize),
+                this.decodeRegister(0, state),
                 this.immediateOperand(reader, state.operandSize));
         }
 
@@ -795,8 +846,7 @@ export class Dissassembler {
     }
 
     private registerOperation(opCode: OpCode, index: number, state: InstructionState): Instruction {
-        var register: Register = <Register>((index * 3) + (state.operandSize == Size.Int16 ? 2 : 3));
-        return new Instruction(opCode, state.isLocked, this.registerOperand(register));
+        return new Instruction(opCode, state.isLocked, this.decodeRegister(index, state));
     }
 
     private imulOperation(reader: IByteReader, state: InstructionState, immediateSize: Size): Instruction {
@@ -810,6 +860,12 @@ export class Dissassembler {
             this.decodeModrm(reader, modrm, state),
             this.immediateOperand(reader, immediateSize)
         );
+    }
+
+    private callOperation(reader: IByteReader, state: InstructionState): Instruction {
+        var segmentValue: number = this.readImmediate(reader, Size.Int16);
+        var offsetValue: number = this.readImmediate(reader, state.addressMode);
+        return new Instruction(OpCode.CALL, state.isLocked, new CallOperand(segmentValue, offsetValue, state.addressMode));
     }
 
     private firstByte(reader: IByteReader, state: InstructionState): Instruction {
@@ -1076,6 +1132,8 @@ export class Dissassembler {
                 return this.group1AOperation(reader, state);
 
             case 0x90: // NOP
+                return new Instruction(OpCode.NOP, state.isLocked);
+
             case 0x91: // XCHG eAX, eCX
             case 0x92: // XCHG eAX, eDX
             case 0x93: // XCHG eAX, eBX
@@ -1083,23 +1141,159 @@ export class Dissassembler {
             case 0x95: // XCHG eAX, eBP
             case 0x96: // XCHG eAX, eSI
             case 0x97: // XCHG eAX, eDI
+                return new Instruction(OpCode.XCHG, state.isLocked, this.decodeRegister(0, state), this.decodeRegister(opcode - 0x90, state));
+
             case 0x98: // CBW
+                return new Instruction(OpCode.CBW, state.isLocked);
+
             case 0x99: // CWD
+                return new Instruction(OpCode.CWD, state.isLocked);
+
             case 0x9A: // CALL Ap
+                return this.callOperation(reader, state);
+
             case 0x9B: // WAIT
+                return new Instruction(OpCode.WAIT, state.isLocked);
+
             case 0x9C: // PUSHF Fv
+                return new Instruction(OpCode.PUSHF, state.isLocked);
+
             case 0x9D: // POPF Fv
+                return new Instruction(OpCode.POPF, state.isLocked);
+
             case 0x9E: // SAHF
+                return new Instruction(OpCode.SAHF, state.isLocked);
+
             case 0x9F: // LAHF
+                return new Instruction(OpCode.LAHF, state.isLocked);
+
+            case 0xA0: // MOV AL, Ob
+            case 0xA1: // MOV eAX, Ov
+            case 0xA2: // MOV Ob, AL
+            case 0xA3: // MOV Ov, eAX
+            case 0xA4: // MOVSB Xb, Yb
+            case 0xA5: // MOVSW/D Xv, Yv
+            case 0xA6: // CMPSB Xb, Yb
+            case 0xA7: // CMPSW/D Xv, Yv
+            case 0xA8: // TEST AL, Ib
+            case 0xA9: // TEST eAX, Iv
+            case 0xAA: // STOSB Yb, AL
+            case 0xAB: // STOSD/W Yv, eAX
+            case 0xAC: // LODSB AL, Xb
+            case 0xAD: // LODSD/W eAX, Xv
+            case 0xAE: // SCASB AL, Xb
+            case 0xAF: // SCASD/W eAX, Xv
+
+            case 0xB0: // MOV AL, Ib
+            case 0xB1: // MOV CL, Ib
+            case 0xB2: // MOV DL, Ib
+            case 0xB3: // MOV BL, Ib
+            case 0xB4: // MOV AH, Ib
+            case 0xB5: // MOV CH, Ib
+            case 0xB6: // MOV DH, Ib
+            case 0xB7: // MOV BH, Ib
+            case 0xB8: // MOV eAX, Iv
+            case 0xB9: // MOV eCX, Iv
+            case 0xBA: // MOV eDX, Iv
+            case 0xBB: // MOV eBX, Iv
+            case 0xBC: // MOV eSP, Iv
+            case 0xBD: // MOV eBP, Iv
+            case 0xBE: // MOV eSI, Iv
+            case 0xBF: // MOV eDI, Iv
+
+            case 0xC0: // Group 2 Eb, Ib
+            case 0xC1: // Group 2 Ev, Iv
+            case 0xC2: // near RET Iw
+            case 0xC3: // near RET
+            case 0xC4: // LES Gv, Mp
+            case 0xC5: // LDS Gv, Mp
+            case 0xC6: // MOV Eb, Ib
+            case 0xC7: // MOV Ev, Iv
+            case 0xC8: // ENTER Iw, Ib
+            case 0xC9: // LEAVE
+            case 0xCA: // far RET Iw
+            case 0xCB: // far RET
+            case 0xCC: // INT 3
+            case 0xCD: // INT Ib
+            case 0xCE: // INTO
+            case 0xCF: // IRET
+
+            case 0xD0: // Group 2 Eb, 1
+            case 0xD1: // Group 2 Ev, 1
+            case 0xD2: // Group 2 Eb, CL
+            case 0xD3: // Group 2 Ev, CL
+            case 0xD4: // AAM
+            case 0xD5: // AAD
+            case 0xD6: // Unused
+                break;
+
+            case 0xD7: // XLAT
+            case 0xD8: // ESC
+            case 0xD9: // ESC
+            case 0xDA: // ESC
+            case 0xDB: // ESC
+            case 0xDC: // ESC
+            case 0xDD: // ESC
+            case 0xDE: // ESC
+            case 0xDF: // ESC
+
+            case 0xE0: // LOOPNE Jb
+            case 0xE1: // NOOPE Jb
+            case 0xE2: // LOOP Jb
+            case 0xE3: // JCXZ Jb
+            case 0xE4: // IN AL, Ib
+            case 0xE5: // IN eAX, Ib
+            case 0xE6: // OUT Ib, AL
+            case 0xE7: // OUT Ib, eAX
+            case 0xE8: // CALL Av
+            case 0xE9: // JNP Jv
+            case 0xEA: // JNP Ap
+            case 0xEB: // JNP Jb
+            case 0xEC: // IN AL, DX
+            case 0xED: // IN eAX, DX
+            case 0xEE: // OUT DX, AL
+            case 0xEF: // OUT DX, eAX
 
             case 0xF0: // LOCK prefix
                 return this.firstByte(reader, state.setIsLocked());
+
+            case 0xF1: // Unused
+                break;
 
             case 0xF2: // REPNE prefix
                 return this.firstByte(reader, state.setIsNegatedRepeat());
 
             case 0xF3: // REP/REPE prefix
                 return this.firstByte(reader, state.setIsRepeat());
+
+            case 0xF4: // HLT
+                return new Instruction(OpCode.HLT, state.isLocked);
+
+            case 0xF5: // CMC
+                return new Instruction(OpCode.CMC, state.isLocked);
+
+            case 0xF6: // Unary Group 3 Eb
+            case 0xF7: // Unary Group 3 Ev
+            case 0xF8: // CLC
+                return new Instruction(OpCode.CLC, state.isLocked);
+
+            case 0xF9: // STC
+                return new Instruction(OpCode.STC, state.isLocked);
+
+            case 0xFA: // CLI
+                return new Instruction(OpCode.CLI, state.isLocked);
+
+            case 0xFB: // STI
+                return new Instruction(OpCode.STI, state.isLocked);
+
+            case 0xFC: // CLD
+                return new Instruction(OpCode.CLD, state.isLocked);
+
+            case 0xFD: // STD
+                return new Instruction(OpCode.STD, state.isLocked);
+
+            case 0xFE: // INC/DEC Group 4
+            case 0xFF: // Indirect Group 5
         }
 
         throw new LayoutError("invalid opcode");
