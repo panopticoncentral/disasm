@@ -1162,8 +1162,8 @@ export class Dissassembler {
             case 0x8E: // MOV Sw, Ew 
                 return this.modrmOperation(OpCode.MOV, reader, state.reverseOperands().setSegmentOperation());
 
-            case 0x8F: // Group 1A POP
-                return this.group1AOperation(reader, state);
+            case 0x8F: // POP Ev
+                return this.operation(OpCode.POP, state, this.decodeModrm(reader, reader.read(), state));
 
             case 0x90: // NOP
                 return this.operation(OpCode.NOP, state);
