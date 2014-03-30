@@ -21,6 +21,9 @@ export enum OpCode {
     AND,
     ARPL,
     BOUND,
+    BSF,
+    BSR,
+    BT,
     BTC,
     BTR,
     BTS,
@@ -29,6 +32,7 @@ export enum OpCode {
     CLC,
     CLD,
     CLI,
+    CLTS,
     CMC,
     CMP,
     CMPS,
@@ -47,25 +51,26 @@ export enum OpCode {
     INT,
     INTO,
     IRET,
-    JMP,
     JCXZ,
-    JO,
-    JNO,
     JB,
-    JNB,
-    JZ,
-    JNZ,
     JBE,
-    JNBE,
-    JS,
-    JNS,
-    JP,
-    JNP,
     JL,
-    JNL,
     JLE,
+    JO,
+    JMP,
+    JNB,
+    JNBE,
+    JNL,
     JNLE,
+    JNO,
+    JNP,
+    JNS,
+    JNZ,
+    JP,
+    JS,
+    JZ,
     LAHF,
+    LAR,
     LDS,
     LEA,
     LEAVE,
@@ -74,8 +79,10 @@ export enum OpCode {
     LOOP,
     LOOPE,
     LOOPNE,
+    LSL,
     MOV,
     MOVS,
+    MOVSX,
     MUL,
     NEG,
     NOP,
@@ -98,8 +105,26 @@ export enum OpCode {
     SAR,
     SBB,
     SCAS,
+    SETB,
+    SETBE,
+    SETL,
+    SETLE,
+    SETO,
+    SETNB,
+    SETNBE,
+    SETNL,
+    SETNLE,
+    SETNO,
+    SETNP,
+    SETNS,
+    SETNZ,
+    SETP,
+    SETS,
+    SETZ,
     SHL,
+    SHLD,
     SHR,
+    SHRD,
     STC,
     STD,
     STI,
@@ -153,6 +178,18 @@ export enum Register {
     BH,
     DI,
     EDI,
+    CR0,
+    CR1,
+    CR2,
+    CR3,
+    DR0,
+    DR1,
+    DR2,
+    DR3,
+    DR4,
+    DR5,
+    DR6,
+    DR7,
     Invalid
 }
 
@@ -177,7 +214,10 @@ enum OperandFlags {
     None = 0x00,
     MustBeMemory = 0x01,
     DontDereference = 0x02,
-    Segment = 0x04
+    Segment = 0x04,
+    MustBeRegister = 0x08,
+    ControlRegister = 0x10,
+    DebugRegister = 0x20
 }
 
 export class Operand {
@@ -493,6 +533,10 @@ export class Disassembler {
         return this;
     }
 
+    private flagSet(value: number, flag: number): boolean {
+        return ((value & flag) == flag);
+    }
+
     private readImmediate(size: Size, isSigned: boolean): number {
         var value: number = 0;
         for (var index: number = 0; index < <number>size - 1; index++) {
@@ -525,7 +569,7 @@ export class Disassembler {
     }
 
     private decodeOperandSize(index: number): Size {
-        return ((index & 0x1) == 0x1) ? this._operandSize : Size.Int8;
+        return this.flagSet(index, 0x1) ? this._operandSize : Size.Int8;
     }
 
     private decodeRegister(index: number, operandSize: Size): RegisterOperand {
@@ -637,9 +681,21 @@ export class Disassembler {
         var modrm: number = this.ensureModrm();
         var reg: number = (modrm >> 3) & 0x7;
 
-        return ((flags & OperandFlags.Segment) == OperandFlags.Segment) ?
-            this.segmentOperand(reg) :
-            this.encodedRegisterOperand(reg, operandSize);
+        if (this.flagSet(flags, OperandFlags.Segment)) {
+            return this.segmentOperand(reg);
+        }
+        else if (this.flagSet(flags, OperandFlags.ControlRegister)) {
+            if (reg > 3) {
+                throw new LayoutError("invalid control register");
+            }
+            return this.registerOperand(Register.CR0 + reg);
+        }
+        else if (this.flagSet(flags, OperandFlags.DebugRegister)) {
+            return this.registerOperand(Register.DR0 + reg);
+        }
+        else {
+            return this.encodedRegisterOperand(reg, operandSize);
+        }
     }
 
     private modrmOperand(operandSize: Size, flags: OperandFlags = OperandFlags.None): Disassembler {
@@ -648,8 +704,8 @@ export class Disassembler {
         var rm: number = modrm & 0x7;
         var result: Operand = null;
 
-        if (mod == 0x3) {
-            if ((flags & OperandFlags.MustBeMemory) == OperandFlags.MustBeMemory) {
+        if (mod == 0x3 || this.flagSet(flags, OperandFlags.MustBeRegister)) {
+            if (this.flagSet(flags, OperandFlags.MustBeMemory)) {
                 throw new LayoutError("expected memory location");
             }
             return this.nextOperand(this.decodeRegister(rm, operandSize));
@@ -722,7 +778,7 @@ export class Disassembler {
         }
 
         return this.nextOperand(
-            ((flags & OperandFlags.DontDereference) == OperandFlags.DontDereference) ?
+            this.flagSet(flags, OperandFlags.DontDereference) ?
             result :
             result.indirect(this._operandSize, this._segmentOverride));
     }
@@ -760,7 +816,7 @@ export class Disassembler {
     }
 
     private callOperand(flags: OperandFlags = OperandFlags.None): Disassembler {
-        var segmentValue: number = ((flags & OperandFlags.Segment) == OperandFlags.Segment) ?
+        var segmentValue: number = this.flagSet(flags, OperandFlags.Segment) ?
             this.readImmediate(Size.Int16, false) :
             this._segmentOverride;
         var offsetValue: number = this.readImmediate(this._addressMode, false);
@@ -907,6 +963,84 @@ export class Disassembler {
         }
     }
 
+    private jumpOpCode(index: number): Disassembler {
+        switch (index) {
+            case 0x0:
+                return this.opCode(OpCode.JO);
+            case 0x1:
+                return this.opCode(OpCode.JNO);
+            case 0x2:
+                return this.opCode(OpCode.JB);
+            case 0x3:
+                return this.opCode(OpCode.JNB);
+            case 0x4:
+                return this.opCode(OpCode.JZ);
+            case 0x5:
+                return this.opCode(OpCode.JNZ);
+            case 0x6:
+                return this.opCode(OpCode.JBE);
+            case 0x7:
+                return this.opCode(OpCode.JNBE);
+            case 0x8:
+                return this.opCode(OpCode.JS);
+            case 0x9:
+                return this.opCode(OpCode.JNS);
+            case 0xA:
+                return this.opCode(OpCode.JP);
+            case 0xB:
+                return this.opCode(OpCode.JNP);
+            case 0xC:
+                return this.opCode(OpCode.JL);
+            case 0xD:
+                return this.opCode(OpCode.JNL);
+            case 0xE:
+                return this.opCode(OpCode.JLE);
+            case 0xF:
+                return this.opCode(OpCode.JNLE);
+        }
+
+        throw new LayoutError("unexpected jump opcode");
+    }
+
+    private setOpCode(index: number): Disassembler {
+        switch (index) {
+            case 0x0:
+                return this.opCode(OpCode.SETO);
+            case 0x1:
+                return this.opCode(OpCode.SETNO);
+            case 0x2:
+                return this.opCode(OpCode.SETB);
+            case 0x3:
+                return this.opCode(OpCode.SETNB);
+            case 0x4:
+                return this.opCode(OpCode.SETZ);
+            case 0x5:
+                return this.opCode(OpCode.SETNZ);
+            case 0x6:
+                return this.opCode(OpCode.SETBE);
+            case 0x7:
+                return this.opCode(OpCode.SETNBE);
+            case 0x8:
+                return this.opCode(OpCode.SETS);
+            case 0x9:
+                return this.opCode(OpCode.SETNS);
+            case 0xA:
+                return this.opCode(OpCode.SETP);
+            case 0xB:
+                return this.opCode(OpCode.SETNP);
+            case 0xC:
+                return this.opCode(OpCode.SETL);
+            case 0xD:
+                return this.opCode(OpCode.SETNL);
+            case 0xE:
+                return this.opCode(OpCode.SETLE);
+            case 0xF:
+                return this.opCode(OpCode.SETNLE);
+        }
+
+        throw new LayoutError("unexpected set opcode");
+    }
+
     private opCode(opCode: OpCode): Disassembler {
         if (this._opCode != OpCode.Invalid) {
             throw new LayoutError("internal error");
@@ -1024,6 +1158,168 @@ export class Disassembler {
         }
     }
 
+    private secondByte(): Instruction {
+        var second: number = this._reader.read();
+
+        switch (second) {
+            case 0x00: // Group 6
+                // UNDONE
+
+            case 0x01: // Group 7
+                // UNDONE
+
+            case 0x02: // LAR Gv, Ew
+                return this.opCode(OpCode.LAR).regOperand(this._operandSize).modrmOperand(Size.Int16).done();
+
+            case 0x03: // LSL Gv, Ew
+                return this.opCode(OpCode.LSL).regOperand(this._operandSize).modrmOperand(Size.Int16).done();
+
+            // Unused 0x04 - 0x05
+
+            case 0x06: // CLTS
+                return this.opCode(OpCode.CLTS).done();
+
+            // Unused 0x07 - 1F
+
+            case 0x20: // MOV Rd, Cd
+                return this.opCode(OpCode.MOV).modrmOperand(Size.Int32, OperandFlags.MustBeRegister).regOperand(Size.Int32, OperandFlags.ControlRegister).done();
+
+            case 0x21: // MOV Rd, Dd
+                return this.opCode(OpCode.MOV).modrmOperand(Size.Int32, OperandFlags.MustBeRegister).regOperand(Size.Int32, OperandFlags.DebugRegister).done();
+
+            case 0x22: // MOV Cd, Rd
+                return this.opCode(OpCode.MOV).regOperand(Size.Int32, OperandFlags.ControlRegister).modrmOperand(Size.Int32, OperandFlags.MustBeRegister).done();
+
+            case 0x23: // MOV Dd, Rd
+                return this.opCode(OpCode.MOV).regOperand(Size.Int32, OperandFlags.DebugRegister).modrmOperand(Size.Int32, OperandFlags.MustBeRegister).done();
+
+            // Unused 0x24 - 0x7F
+
+            case 0x80: // JO Jv
+            case 0x81: // JNO Jv
+            case 0x82: // JB Jv
+            case 0x83: // JNB Jv
+            case 0x84: // JZ Jv
+            case 0x85: // JNZ Jv
+            case 0x86: // JBE Jv
+            case 0x87: // JNBE Jv
+            case 0x88: // JS Jv
+            case 0x89: // JNS Jv
+            case 0x8A: // JP Jv
+            case 0x8B: // JNP Jv
+            case 0x8C: // JL Jv
+            case 0x8D: // JNL Jv
+            case 0x8E: // JLE Jv
+            case 0x8F: // JNLE Jv
+                return this.jumpOpCode(second - 0x80).displacementOperand(this._operandSize).done();
+
+            case 0x90: // SETO Eb
+            case 0x91: // SETNO Eb
+            case 0x92: // SETB Eb
+            case 0x93: // SETNB Eb
+            case 0x94: // SETZ Eb
+            case 0x95: // SETNZ Eb
+            case 0x96: // SETBE Eb
+            case 0x97: // SETNBE Eb
+                return this.setOpCode(second - 0x90).modrmOperand(Size.Int8).done();
+
+            case 0x98: // SETS
+            case 0x99: // SETNS
+            case 0x9A: // SETP
+            case 0x9B: // SETNP
+            case 0x9C: // SETL
+            case 0x9D: // SETNL
+            case 0x9E: // SETLE
+            case 0x9F: // SETNLE
+                return this.setOpCode(second - 0x90).done();
+
+            case 0xA0: // PUSH FS
+                return this.opCode(OpCode.PUSH).segmentOperand(Segment.FS).done();
+
+            case 0xA1: // POP FS
+                return this.opCode(OpCode.POP).segmentOperand(Segment.FS).done();
+
+            // Unused 0xA2
+
+            case 0xA3: // BT Ev, Gv
+                return this.opCode(OpCode.BT).modrmOperand(this._operandSize).regOperand(this._operandSize).done();
+
+            case 0xA4: // SHLD Ev, Gv, Ib
+                return this.opCode(OpCode.SHLD).modrmOperand(this._operandSize).regOperand(this._operandSize).immediateOperand(Size.Int8).done();
+
+            case 0xA5: // SHLD Ev, Gv, CL
+                return this.opCode(OpCode.SHLD).modrmOperand(this._operandSize).regOperand(this._operandSize).registerOperand(Register.CL).done();
+
+            // Unused 0xA6 - 0xA7
+
+            case 0xA8: // PUSH GS
+                return this.opCode(OpCode.PUSH).segmentOperand(Segment.GS).done();
+
+            case 0xA9: // POP GS
+                return this.opCode(OpCode.POP).segmentOperand(Segment.GS).done();
+
+            // Unused 0xAA
+
+            case 0xAB: // BTS Ev, Gv
+                return this.opCode(OpCode.BTS).modrmOperand(this._operandSize).regOperand(this._operandSize).done();
+
+            case 0xAC: // SHRD Ev, Gv, Ib
+                return this.opCode(OpCode.SHRD).modrmOperand(this._operandSize).regOperand(this._operandSize).immediateOperand(Size.Int8).done();
+
+            case 0xAD: // SHRD Ev, Gv, CL
+                return this.opCode(OpCode.SHRD).modrmOperand(this._operandSize).regOperand(this._operandSize).registerOperand(Register.CL).done();
+
+            // Unused 0xAE
+
+            case 0xAF: // IMUL Gv, Ev
+                return this.opCode(OpCode.IMUL).regOperand(this._operandSize).modrmOperand(this._operandSize).done();
+
+            // Unused 0xB0 - 0xB1
+
+            case 0xB2: // LSS Gv, Mp
+                // UNDONE
+
+            case 0xB3: // BTR Ev, Gv
+                return this.opCode(OpCode.BTR).modrmOperand(this._operandSize).regOperand(this._operandSize).done();
+
+            case 0xB4: // LFS Gv, Mp
+                // UNDONE
+
+            case 0xB5: // LGS Gv, Mp
+                // UNDONE
+
+            case 0xB6: // MOVZX Gv, Eb
+                // UNDONE
+
+            case 0xB7: // MOVZX Gv, Ew
+                // UNDONE
+
+            // Unused 0xB8 - 0xB9
+
+            case 0xBA: // Group 8 Ev, Ib
+                // UNDONE
+
+            case 0xBB: // BTC Ev, Gv
+                return this.opCode(OpCode.BTC).modrmOperand(this._operandSize).regOperand(this._operandSize).done();
+
+            case 0xBC: // BSF Gv, Ev
+                return this.opCode(OpCode.BSF).regOperand(this._operandSize).modrmOperand(this._operandSize).done();
+
+            case 0xBD: // BSR Gv, Ev
+                return this.opCode(OpCode.BSR).regOperand(this._operandSize).modrmOperand(this._operandSize).done();
+
+            case 0xBE: // MOVSX Gv, Eb
+                return this.opCode(OpCode.MOVSX).regOperand(this._operandSize).modrmOperand(Size.Int8).done();
+
+            case 0xBF: // MOVSX Gv, Ew
+                return this.opCode(OpCode.BSF).regOperand(this._operandSize).modrmOperand(Size.Int16).done();
+
+            // Unused 0xC0 - 0xFF
+        }
+
+        throw new LayoutError("invalid instruction");
+    }
+
     private firstByte(): Instruction {
         var first: number = this._reader.read();
 
@@ -1054,7 +1350,7 @@ export class Disassembler {
                 return this.opCode(OpCode.PUSH).segmentOperand(Segment.CS).done();
 
             case 0x0F: // Two byte escape
-                return this.twoByteEscape();
+                return this.secondByte();
 
             case 0x10: // ADC Eb, Gb
             case 0x11: // ADC Ev, Gv
@@ -1240,7 +1536,7 @@ export class Disassembler {
             case 0x7D: // JNL Jb
             case 0x7E: // JLE Jb
             case 0x7F: // JNLE Jb
-                return this.opCode(OpCode.JO + (first - 0x70)).displacementOperand(Size.Int8).done();
+                return this.jumpOpCode(first - 0x70).displacementOperand(Size.Int8).done();
 
             case 0x80: // Group 1 Eb, Ib
             case 0x81: // Group 1 Ev, Iz
