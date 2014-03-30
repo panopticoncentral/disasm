@@ -42,6 +42,14 @@ export enum OpCode {
     DEC,
     DIV,
     ENTER,
+    FADD,
+    FCOM,
+    FCOMP,
+    FDIV,
+    FDIVR,
+    FMUL,
+    FSUB,
+    FSUBR,
     HLT,
     IDIV,
     INC,
@@ -154,7 +162,8 @@ export enum OpCode {
 export enum Size {
     Int8,
     Int16,
-    Int32
+    Int32,
+    Single
 }
 
 export enum Segment {
@@ -582,6 +591,18 @@ export class Disassembler {
         return this._modrm;
     }
 
+    private reg(modrm: number): number {
+        return (modrm >> 3) & 0x7;
+    }
+
+    private mod(modrm: number): number {
+        return modrm >> 6;
+    }
+
+    private rm(modrm: number): number {
+        return modrm & 0x7;
+    }
+
     private decodeOperandSize(index: number): Size {
         return this.flagSet(index, 0x1) ? this._operandSize : Size.Int8;
     }
@@ -606,7 +627,7 @@ export class Disassembler {
         return new ImmediateOperand(value, Size.Int8);
     }
 
-    private sib(operandSize: Size): Operand {
+    private sib(): Operand {
         var sib: number = this._reader.read();
         var scale: number = (sib >> 6) & 0x3;
         var index: number = (sib >> 3) & 0x7;
@@ -616,10 +637,10 @@ export class Disassembler {
         var scaleOperand: ScaleOperand = null;
 
         if (index != 0x4 && scale > 0) {
-            scaleOperand = this.decodeRegister(index, operandSize).scaleBy(scaleValue);
+            scaleOperand = this.decodeRegister(index, Size.Int32).scaleBy(scaleValue);
         }
 
-        var baseOperand: RegisterOperand = this.decodeRegister(base, operandSize);
+        var baseOperand: RegisterOperand = this.decodeRegister(base, Size.Int32);
 
         if (base != 0x5) {
             if (scaleOperand) {
@@ -693,7 +714,7 @@ export class Disassembler {
 
     private regOperand(operandSize: Size, flags: OperandFlags = OperandFlags.None): Disassembler {
         var modrm: number = this.ensureModrm();
-        var reg: number = (modrm >> 3) & 0x7;
+        var reg: number = this.reg(modrm);
 
         if (this.flagSet(flags, OperandFlags.Segment)) {
             return this.segmentOperand(reg);
@@ -714,8 +735,8 @@ export class Disassembler {
 
     private modrmOperand(operandSize: Size, flags: OperandFlags = OperandFlags.None): Disassembler {
         var modrm: number = this.ensureModrm();
-        var mod: number = modrm >> 6;
-        var rm: number = modrm & 0x7;
+        var mod: number = this.mod(modrm);
+        var rm: number = this.rm(modrm);
         var result: Operand = null;
 
         if (mod == 0x3 || this.flagSet(flags, OperandFlags.MustBeRegister)) {
@@ -767,13 +788,13 @@ export class Disassembler {
         }
         else {
             if (rm == 0x4) {
-                result = this.sib(operandSize);
+                result = this.sib();
             }
             else if (rm == 0x5 && mod == 0x00) {
                 result = this.displacement(this._addressMode);
             }
             else {
-                result = this.decodeRegister(rm, operandSize);
+                result = this.decodeRegister(rm, Size.Int32);
             }
         }
 
@@ -793,8 +814,8 @@ export class Disassembler {
 
         return this.nextOperand(
             this.flagSet(flags, OperandFlags.DontDereference) ?
-            result :
-            result.indirect(this._operandSize, this._segmentOverride));
+                result :
+                result.indirect(operandSize, this._segmentOverride));
     }
 
     private esdiOperand(operandSize: Size): Disassembler {
@@ -919,7 +940,7 @@ export class Disassembler {
 
     private group1OpCode(): Disassembler {
         var modrm: number = this.ensureModrm();
-        switch ((modrm >> 3) & 0x7) {
+        switch (this.reg(modrm)) {
             case 0x0:
                 return this.opCode(OpCode.ADD);
             case 0x1:
@@ -943,7 +964,7 @@ export class Disassembler {
 
     private group2OpCode(): Disassembler {
         var modrm: number = this.ensureModrm();
-        switch ((modrm >> 3) & 0x7) {
+        switch (this.reg(modrm)) {
             case 0x0:
                 return this.opCode(OpCode.ROL);
             case 0x1:
@@ -966,7 +987,7 @@ export class Disassembler {
 
     private group4OpCode(): Disassembler {
         var modrm: number = this.ensureModrm();
-        switch ((modrm >> 3) & 0x7) {
+        switch (this.reg(modrm)) {
             case 0x0:
                 return this.opCode(OpCode.INC);
             case 0x1:
@@ -979,7 +1000,7 @@ export class Disassembler {
 
     private group6OpCode(): Disassembler {
         var modrm: number = this.ensureModrm();
-        switch ((modrm >> 3) & 0x7) {
+        switch (this.reg(modrm)) {
             case 0x0: // SLDT Ew
                 return this.opCode(OpCode.SLDT);
             case 0x1: // SIDT Ew
@@ -1000,7 +1021,7 @@ export class Disassembler {
 
     private group8OpCode(): Disassembler {
         var modrm: number = this.ensureModrm();
-        switch ((modrm >> 3) & 0x7) {
+        switch (this.reg(modrm)) {
             // 0x0 - 0x3 Unused
             case 0x4:
                 return this.opCode(OpCode.BT);
@@ -1157,7 +1178,7 @@ export class Disassembler {
         if (this._opCode == OpCode.Invalid) {
             throw new LayoutError("internal error");
         }
-        
+
         this._reader = null;
 
         return new Instruction(this._opCode, this._isLocked, this._isNear, this._repeatType, this._operand1, this._operand2, this._operand3);
@@ -1165,7 +1186,7 @@ export class Disassembler {
 
     private group3(first: number): Instruction {
         var modrm: number = this.ensureModrm();
-        switch ((modrm >> 3) & 0x7) {
+        switch (this.reg(modrm)) {
             case 0x0:
                 return this.opCode(OpCode.TEST).modrmOperand(this.decodeOperandSize(first)).immediateOperand(this.decodeOperandSize(first)).done();
             case 0x1: // unused
@@ -1189,7 +1210,7 @@ export class Disassembler {
 
     private group5(): Instruction {
         var modrm: number = this.ensureModrm();
-        switch ((modrm >> 3) & 0x7) {
+        switch (this.reg(modrm)) {
             case 0x0: // INC Ev
                 return this.opCode(OpCode.INC).modrmOperand(this._operandSize).done();
             case 0x1: // DEC Ev
@@ -1212,7 +1233,7 @@ export class Disassembler {
 
     private group7(): Instruction {
         var modrm: number = this.ensureModrm();
-        switch ((modrm >> 3) & 0x7) {
+        switch (this.reg(modrm)) {
             case 0x0: // SGDT Ms
                 return this.opCode(OpCode.SGDT).modrmOperand(this._operandSize, OperandFlags.MustBeMemory).done();
             case 0x1: // SIDT Ms
@@ -1230,6 +1251,61 @@ export class Disassembler {
             default:
                 throw new LayoutError("internal error");
         }
+    }
+
+    private escape(opcode: number): Instruction {
+        var modrm: number = this.ensureModrm();
+
+        switch (opcode) {
+            case 0xD8:
+                switch (this.reg(modrm)) {
+                    case 0x0: // FADD
+                        this.opCode(OpCode.FADD);
+                        break;
+
+                    case 0x1: // FMUL
+                        this.opCode(OpCode.FMUL);
+                        break;
+
+                    case 0x2: // FCOM
+                        this.opCode(OpCode.FCOM);
+                        break;
+
+                    case 0x3: // FCOMP
+                        this.opCode(OpCode.FCOMP);
+                        break;
+
+                    case 0x4: // FSUB
+                        this.opCode(OpCode.FSUB);
+                        break;
+
+                    case 0x5: // FSUBR
+                        this.opCode(OpCode.FSUBR);
+                        break;
+
+                    case 0x6: // FDIV
+                        this.opCode(OpCode.FDIV);
+                        break;
+
+                    case 0x7: // FDIVR
+                        this.opCode(OpCode.FDIVR);
+                        break;
+                }
+
+                if (this.mod(modrm) == 0x3) {
+                } else {
+                    return this.modrmOperand(Size.Single).done();
+                }
+            case 0xD9:
+            case 0xDA:
+            case 0xDB:
+            case 0xDC:
+            case 0xDD:
+            case 0xDE:
+            case 0xDF:
+        }
+
+        throw new LayoutError("internal error");
     }
 
     private secondByte(): Instruction {
@@ -1787,7 +1863,7 @@ export class Disassembler {
             case 0xD2: // Group 2 Eb, CL
             case 0xD3: // Group 2 Ev, CL
                 return this.group2OpCode().modrmOperand(this.decodeOperandSize(first)).registerOperand(Register.CL).done();
-            
+
             case 0xD4: // AAM
                 return this.opCode(OpCode.AAM).done();
 
@@ -1808,7 +1884,7 @@ export class Disassembler {
             case 0xDD: // ESC
             case 0xDE: // ESC
             case 0xDF: // ESC
-                return this.escape(first - 0xD8);
+                return this.escape(first);
 
             case 0xE0: // LOOPNE Jb
                 return this.opCode(OpCode.LOOPNE).displacementOperand(Size.Int8).done();
