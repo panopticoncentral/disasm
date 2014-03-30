@@ -75,14 +75,22 @@ export enum OpCode {
     LEA,
     LEAVE,
     LES,
+    LFS,
+    LGDT,
+    LGS,
+    LIDT,
+    LMSW,
     LODS,
     LOOP,
     LOOPE,
     LOOPNE,
     LSL,
+    LSS,
+    LTR,
     MOV,
     MOVS,
     MOVSX,
+    MOVZX,
     MUL,
     NEG,
     NOP,
@@ -121,16 +129,22 @@ export enum OpCode {
     SETP,
     SETS,
     SETZ,
+    SGDT,
     SHL,
     SHLD,
     SHR,
     SHRD,
+    SIDT,
+    SLDT,
+    SMSW,
     STC,
     STD,
     STI,
     STOS,
     SUB,
     TEST,
+    VERR,
+    VERW,
     WAIT,
     XCHG,
     XLAT,
@@ -963,6 +977,44 @@ export class Disassembler {
         }
     }
 
+    private group6OpCode(): Disassembler {
+        var modrm: number = this.ensureModrm();
+        switch ((modrm >> 3) & 0x7) {
+            case 0x0: // SLDT Ew
+                return this.opCode(OpCode.SLDT);
+            case 0x1: // SIDT Ew
+                return this.opCode(OpCode.SIDT);
+            case 0x2: // LGDT Ew
+                return this.opCode(OpCode.LGDT);
+            case 0x3: // LTR Ew
+                return this.opCode(OpCode.LTR);
+            case 0x4: // VERR Ew
+                return this.opCode(OpCode.VERR);
+            case 0x5: // VERW Ew
+                return this.opCode(OpCode.VERW);
+            // 0x6 - 0x7: Unused
+            default:
+                throw new LayoutError("internal error");
+        }
+    }
+
+    private group8OpCode(): Disassembler {
+        var modrm: number = this.ensureModrm();
+        switch ((modrm >> 3) & 0x7) {
+            // 0x0 - 0x3 Unused
+            case 0x4:
+                return this.opCode(OpCode.BT);
+            case 0x5:
+                return this.opCode(OpCode.BTS);
+            case 0x6:
+                return this.opCode(OpCode.BTR);
+            case 0x7:
+                return this.opCode(OpCode.BTC);
+            default:
+                throw new LayoutError("internal error");
+        }
+    }
+
     private jumpOpCode(index: number): Disassembler {
         switch (index) {
             case 0x0:
@@ -1158,15 +1210,37 @@ export class Disassembler {
         }
     }
 
+    private group7(): Instruction {
+        var modrm: number = this.ensureModrm();
+        switch ((modrm >> 3) & 0x7) {
+            case 0x0: // SGDT Ms
+                return this.opCode(OpCode.SGDT).modrmOperand(this._operandSize, OperandFlags.MustBeMemory).done();
+            case 0x1: // SIDT Ms
+                return this.opCode(OpCode.SIDT).modrmOperand(this._operandSize, OperandFlags.MustBeMemory).done();
+            case 0x2: // LGDT Ms
+                return this.opCode(OpCode.LGDT).modrmOperand(this._operandSize, OperandFlags.MustBeMemory).done();
+            case 0x3: // LIDT Ms
+                return this.opCode(OpCode.LIDT).modrmOperand(this._operandSize, OperandFlags.MustBeMemory).done();
+            case 0x4: // SMSW Ew
+                return this.opCode(OpCode.SMSW).modrmOperand(Size.Int16).done();
+            // case 0x5: unused
+            case 0x6: // LMSW Ew
+                return this.opCode(OpCode.LMSW).modrmOperand(Size.Int16).done();
+            // case 0x7: Unused
+            default:
+                throw new LayoutError("internal error");
+        }
+    }
+
     private secondByte(): Instruction {
         var second: number = this._reader.read();
 
         switch (second) {
             case 0x00: // Group 6
-                // UNDONE
+                return this.group6OpCode().modrmOperand(Size.Int16).done();
 
             case 0x01: // Group 7
-                // UNDONE
+                return this.group7();
 
             case 0x02: // LAR Gv, Ew
                 return this.opCode(OpCode.LAR).regOperand(this._operandSize).modrmOperand(Size.Int16).done();
@@ -1277,27 +1351,27 @@ export class Disassembler {
             // Unused 0xB0 - 0xB1
 
             case 0xB2: // LSS Gv, Mp
-                // UNDONE
+                return this.opCode(OpCode.LSS).regOperand(this._operandSize).modrmOperand(this._operandSize, OperandFlags.MustBeMemory).done();
 
             case 0xB3: // BTR Ev, Gv
                 return this.opCode(OpCode.BTR).modrmOperand(this._operandSize).regOperand(this._operandSize).done();
 
             case 0xB4: // LFS Gv, Mp
-                // UNDONE
+                return this.opCode(OpCode.LFS).regOperand(this._operandSize).modrmOperand(this._operandSize, OperandFlags.MustBeMemory).done();
 
             case 0xB5: // LGS Gv, Mp
-                // UNDONE
+                return this.opCode(OpCode.LGS).regOperand(this._operandSize).modrmOperand(this._operandSize, OperandFlags.MustBeMemory).done();
 
             case 0xB6: // MOVZX Gv, Eb
-                // UNDONE
+                return this.opCode(OpCode.MOVZX).regOperand(this._operandSize).modrmOperand(Size.Int8).done();
 
             case 0xB7: // MOVZX Gv, Ew
-                // UNDONE
+                return this.opCode(OpCode.MOVZX).regOperand(this._operandSize).modrmOperand(Size.Int16).done();
 
             // Unused 0xB8 - 0xB9
 
             case 0xBA: // Group 8 Ev, Ib
-                // UNDONE
+                return this.group8OpCode().modrmOperand(this._operandSize).immediateOperand(Size.Int8).done();
 
             case 0xBB: // BTC Ev, Gv
                 return this.opCode(OpCode.BTC).modrmOperand(this._operandSize).regOperand(this._operandSize).done();
@@ -1734,7 +1808,7 @@ export class Disassembler {
             case 0xDD: // ESC
             case 0xDE: // ESC
             case 0xDF: // ESC
-                return this.fpOperation(first - 0xD8);
+                return this.escape(first - 0xD8);
 
             case 0xE0: // LOOPNE Jb
                 return this.opCode(OpCode.LOOPNE).displacementOperand(Size.Int8).done();
