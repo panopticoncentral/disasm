@@ -42,14 +42,50 @@ export enum OpCode {
     DEC,
     DIV,
     ENTER,
+    F2XM1,
+    FABS,
     FADD,
+    FCHS,
     FCOM,
     FCOMP,
+    FCOS,
+    FDECSTP,
     FDIV,
     FDIVR,
+    FINCSTP,
+    FLD,
+    FLD1,
+    FLDCW,
+    FLDENV,
+    FLDL2E,
+    FLDL2T,
+    FLDLG2,
+    FLDLN2,
+    FLDPI,
+    FLDZ,
     FMUL,
+    FNOP,
+    FPATAN,
+    FPREM,
+    FPREM1,
+    FPTAN,
+    FRNDINT,
+    FSCALE,
+    FSIN,
+    FSINCOS,
+    FSQRT,
+    FST,
+    FSTCW,
+    FSTP,
+    FSTENV,
     FSUB,
     FSUBR,
+    FTST,
+    FYL2X,
+    FYL2XP1,
+    FXAM,
+    FXCH,
+    FXTRACT,
     HLT,
     IDIV,
     INC,
@@ -163,7 +199,15 @@ export enum Size {
     Int8,
     Int16,
     Int32,
-    Single
+    Int16Int16,
+    Int16Int32,
+    Int32Int32,
+    ByteByte,
+    Single,
+    PseudoDescriptor6,
+    PseudoDescriptor10,
+    FloatingPointEnvironment14,
+    FloatingPointEnvironment28
 }
 
 export enum Segment {
@@ -224,7 +268,8 @@ export enum OperandType {
     Addition,
     Scale,
     Repeat,
-    Call
+    Call,
+    FloatingPointStack
 }
 
 export enum RepeatType {
@@ -235,12 +280,11 @@ export enum RepeatType {
 
 enum OperandFlags {
     None = 0x00,
-    MustBeMemory = 0x01,
-    DontDereference = 0x02,
-    Segment = 0x04,
-    MustBeRegister = 0x08,
-    ControlRegister = 0x10,
-    DebugRegister = 0x20
+    DontDereference = 0x01,
+    Segment = 0x02,
+    MustBeRegister = 0x04,
+    ControlRegister = 0x8,
+    DebugRegister = 0x10
 }
 
 export class Operand {
@@ -454,6 +498,19 @@ export class ScaleOperand extends Operand {
 
     public get scale(): number {
         return this._scale;
+    }
+}
+
+export class FloatingPointStackOperand extends Operand {
+    private _index: number;
+
+    constructor(index: number) {
+        super(OperandType.FloatingPointStack);
+        this._index = index;
+    }
+
+    public get index(): number {
+        return this._index;
     }
 }
 
@@ -740,7 +797,7 @@ export class Disassembler {
         var result: Operand = null;
 
         if (mod == 0x3 || this.flagSet(flags, OperandFlags.MustBeRegister)) {
-            if (this.flagSet(flags, OperandFlags.MustBeMemory)) {
+            if (operandSize > Size.Int32 || this.flagSet(flags, OperandFlags.DontDereference)) {
                 throw new LayoutError("expected memory location");
             }
             return this.nextOperand(this.decodeRegister(rm, operandSize));
@@ -856,6 +913,10 @@ export class Disassembler {
             this._segmentOverride;
         var offsetValue: number = this.readImmediate(this._addressMode, false);
         return this.nextOperand(new CallOperand(segmentValue, offsetValue, this._addressMode));
+    }
+
+    private floatingPointOperand(index: number): Disassembler {
+        return this.nextOperand(new FloatingPointStackOperand(index));
     }
 
     private arithmeticOperands(index: number): Disassembler {
@@ -1217,12 +1278,12 @@ export class Disassembler {
                 return this.opCode(OpCode.DEC).modrmOperand(this._operandSize).done();
             case 0x2: // near CALL Ev
                 return this.near().opCode(OpCode.CALL).modrmOperand(this._operandSize).done();
-            case 0x3: // far CALL Ep
-                return this.opCode(OpCode.CALL).modrmOperand(this._operandSize).done();
+            case 0x3: // far CALL Mp
+                return this.opCode(OpCode.CALL).modrmOperand(this._operandSize == Size.Int16 ? Size.Int16Int16 : Size.Int16Int32).done();
             case 0x4: // near JMP Ev
                 return this.opCode(OpCode.JMP).modrmOperand(this._operandSize).done();
             case 0x5: // far JMP Mp
-                return this.opCode(OpCode.JMP).modrmOperand(this._operandSize, OperandFlags.MustBeMemory).done();
+                return this.opCode(OpCode.JMP).modrmOperand(this._operandSize == Size.Int16 ? Size.Int16Int16 : Size.Int16Int32).done();
             case 0x6: // PUSH Ev
                 return this.opCode(OpCode.PUSH).modrmOperand(this._operandSize).done();
             // case 0x7: Unused
@@ -1235,13 +1296,13 @@ export class Disassembler {
         var modrm: number = this.ensureModrm();
         switch (this.reg(modrm)) {
             case 0x0: // SGDT Ms
-                return this.opCode(OpCode.SGDT).modrmOperand(this._operandSize, OperandFlags.MustBeMemory).done();
+                return this.opCode(OpCode.SGDT).modrmOperand(this._operandSize == Size.Int16 ? Size.PseudoDescriptor6 : Size.PseudoDescriptor10).done();
             case 0x1: // SIDT Ms
-                return this.opCode(OpCode.SIDT).modrmOperand(this._operandSize, OperandFlags.MustBeMemory).done();
+                return this.opCode(OpCode.SIDT).modrmOperand(this._operandSize == Size.Int16 ? Size.PseudoDescriptor6 : Size.PseudoDescriptor10).done();
             case 0x2: // LGDT Ms
-                return this.opCode(OpCode.LGDT).modrmOperand(this._operandSize, OperandFlags.MustBeMemory).done();
+                return this.opCode(OpCode.LGDT).modrmOperand(this._operandSize == Size.Int16 ? Size.PseudoDescriptor6 : Size.PseudoDescriptor10).done();
             case 0x3: // LIDT Ms
-                return this.opCode(OpCode.LIDT).modrmOperand(this._operandSize, OperandFlags.MustBeMemory).done();
+                return this.opCode(OpCode.LIDT).modrmOperand(this._operandSize == Size.Int16 ? Size.PseudoDescriptor6 : Size.PseudoDescriptor10).done();
             case 0x4: // SMSW Ew
                 return this.opCode(OpCode.SMSW).modrmOperand(Size.Int16).done();
             // case 0x5: unused
@@ -1259,44 +1320,188 @@ export class Disassembler {
         switch (opcode) {
             case 0xD8:
                 switch (this.reg(modrm)) {
-                    case 0x0: // FADD
+                    case 0x0:
                         this.opCode(OpCode.FADD);
                         break;
 
-                    case 0x1: // FMUL
+                    case 0x1:
                         this.opCode(OpCode.FMUL);
                         break;
 
-                    case 0x2: // FCOM
+                    case 0x2:
                         this.opCode(OpCode.FCOM);
                         break;
 
-                    case 0x3: // FCOMP
+                    case 0x3:
                         this.opCode(OpCode.FCOMP);
                         break;
 
-                    case 0x4: // FSUB
+                    case 0x4:
                         this.opCode(OpCode.FSUB);
                         break;
 
-                    case 0x5: // FSUBR
+                    case 0x5:
                         this.opCode(OpCode.FSUBR);
                         break;
 
-                    case 0x6: // FDIV
+                    case 0x6:
                         this.opCode(OpCode.FDIV);
                         break;
 
-                    case 0x7: // FDIVR
+                    case 0x7:
                         this.opCode(OpCode.FDIVR);
                         break;
                 }
 
                 if (this.mod(modrm) == 0x3) {
+                    return this.floatingPointOperand(0).floatingPointOperand(this.rm(modrm)).done();
                 } else {
                     return this.modrmOperand(Size.Single).done();
                 }
+
             case 0xD9:
+                if (this.mod(modrm) != 0x3) {
+                    switch (this.reg(modrm)) {
+                        case 0x0:
+                            return this.opCode(OpCode.FLD).modrmOperand(Size.Single).done();
+
+                        // case 0x1: Unused
+
+                        case 0x2:
+                            return this.opCode(OpCode.FST).modrmOperand(Size.Single).done();
+
+                        case 0x3:
+                            return this.opCode(OpCode.FSTP).modrmOperand(Size.Single).done();
+
+                        case 0x4:
+                            return this.opCode(OpCode.FLDENV).modrmOperand(this._operandSize == Size.Int16 ? Size.FloatingPointEnvironment14 : Size.FloatingPointEnvironment28).done();
+
+                        case 0x5:
+                            return this.opCode(OpCode.FLDCW).modrmOperand(Size.ByteByte).done();
+
+                        case 0x6:
+                            return this.opCode(OpCode.FSTENV).modrmOperand(this._operandSize == Size.Int16 ? Size.FloatingPointEnvironment14 : Size.FloatingPointEnvironment28).done();
+
+                        case 0x7:
+                            return this.opCode(OpCode.FSTCW).modrmOperand(Size.ByteByte).done();
+                    }
+                }
+                else {
+                    switch (this.reg(modrm)) {
+                        case 0x0:
+                            return this.opCode(OpCode.FLD).floatingPointOperand(0).floatingPointOperand(this.rm(modrm)).done();
+
+                        case 0x1:
+                            return this.opCode(OpCode.FXCH).floatingPointOperand(0).floatingPointOperand(this.rm(modrm)).done();
+
+                        case 0x2:
+                            if (this.rm(modrm) == 0x0) {
+                                return this.opCode(OpCode.FNOP).done();
+                            }
+
+                        // case 0x3 Unused
+
+                        case 0x4:
+                            switch (this.rm(modrm)) {
+                                case 0x0:
+                                    return this.opCode(OpCode.FCHS).done();
+
+                                case 0x1:
+                                    return this.opCode(OpCode.FABS).done();
+
+                                // case 0x2 - 0x3 Unused
+
+                                case 0x4:
+                                    return this.opCode(OpCode.FTST).done();
+
+                                case 0x5:
+                                    return this.opCode(OpCode.FXAM).done();
+
+                                // case 0x6 - 0x7 Unused
+                            }
+
+                        case 0x5:
+                            switch (this.rm(modrm)) {
+                                case 0x0:
+                                    return this.opCode(OpCode.FLD1).done();
+
+                                case 0x1:
+                                    return this.opCode(OpCode.FLDL2T).done();
+
+                                case 0x2:
+                                    return this.opCode(OpCode.FLDL2E).done();
+
+                                case 0x3:
+                                    return this.opCode(OpCode.FLDPI).done();
+
+                                case 0x4:
+                                    return this.opCode(OpCode.FLDLG2).done();
+
+                                case 0x5:
+                                    return this.opCode(OpCode.FLDLN2).done();
+
+                                case 0x6:
+                                    return this.opCode(OpCode.FLDZ).done();
+
+                                // case 0x7 Unused
+                            }
+
+                        case 0x6:
+                            switch (this.rm(modrm)) {
+                                case 0x0:
+                                    return this.opCode(OpCode.F2XM1).done();
+
+                                case 0x1:
+                                    return this.opCode(OpCode.FYL2X).done();
+
+                                case 0x2:
+                                    return this.opCode(OpCode.FPTAN).done();
+
+                                case 0x3:
+                                    return this.opCode(OpCode.FPATAN).done();
+
+                                case 0x4:
+                                    return this.opCode(OpCode.FXTRACT).done();
+
+                                case 0x5:
+                                    return this.opCode(OpCode.FPREM1).done();
+
+                                case 0x6:
+                                    return this.opCode(OpCode.FDECSTP).done();
+
+                                case 0x7:
+                                    return this.opCode(OpCode.FINCSTP).done();
+                            }
+
+                        case 0x7:
+                            switch (this.rm(modrm)) {
+                                case 0x0:
+                                    return this.opCode(OpCode.FPREM).done();
+
+                                case 0x1:
+                                    return this.opCode(OpCode.FYL2XP1).done();
+
+                                case 0x2:
+                                    return this.opCode(OpCode.FSQRT).done();
+
+                                case 0x3:
+                                    return this.opCode(OpCode.FSINCOS).done();
+
+                                case 0x4:
+                                    return this.opCode(OpCode.FRNDINT).done();
+
+                                case 0x5:
+                                    return this.opCode(OpCode.FSCALE).done();
+
+                                case 0x6:
+                                    return this.opCode(OpCode.FSIN).done();
+
+                                case 0x7:
+                                    return this.opCode(OpCode.FCOS).done();
+                            }
+                    }
+                }
+
             case 0xDA:
             case 0xDB:
             case 0xDC:
@@ -1427,16 +1632,16 @@ export class Disassembler {
             // Unused 0xB0 - 0xB1
 
             case 0xB2: // LSS Gv, Mp
-                return this.opCode(OpCode.LSS).regOperand(this._operandSize).modrmOperand(this._operandSize, OperandFlags.MustBeMemory).done();
+                return this.opCode(OpCode.LSS).regOperand(this._operandSize).modrmOperand(this._operandSize == Size.Int16 ? Size.Int16Int16 : Size.Int16Int32).done();
 
             case 0xB3: // BTR Ev, Gv
                 return this.opCode(OpCode.BTR).modrmOperand(this._operandSize).regOperand(this._operandSize).done();
 
             case 0xB4: // LFS Gv, Mp
-                return this.opCode(OpCode.LFS).regOperand(this._operandSize).modrmOperand(this._operandSize, OperandFlags.MustBeMemory).done();
+                return this.opCode(OpCode.LFS).regOperand(this._operandSize).modrmOperand(this._operandSize == Size.Int16 ? Size.Int16Int16 : Size.Int16Int32).done();
 
             case 0xB5: // LGS Gv, Mp
-                return this.opCode(OpCode.LGS).regOperand(this._operandSize).modrmOperand(this._operandSize, OperandFlags.MustBeMemory).done();
+                return this.opCode(OpCode.LGS).regOperand(this._operandSize).modrmOperand(this._operandSize == Size.Int16 ? Size.Int16Int16 : Size.Int16Int32).done();
 
             case 0xB6: // MOVZX Gv, Eb
                 return this.opCode(OpCode.MOVZX).regOperand(this._operandSize).modrmOperand(Size.Int8).done();
@@ -1633,7 +1838,7 @@ export class Disassembler {
                 return this.opCode(OpCode.POPA).done();
 
             case 0x62: // BOUND Gv, Ma
-                return this.opCode(OpCode.BOUND).regOperand(this._operandSize).modrmOperand(this._operandSize, OperandFlags.MustBeMemory).done();
+                return this.opCode(OpCode.BOUND).regOperand(this._operandSize).modrmOperand(this._operandSize == Size.Int16 ? Size.Int16Int16 : Size.Int32Int32).done();
 
             case 0x63: // ARPL Ew, Gw
                 return this.opCode(OpCode.ARPL).modrmOperand(Size.Int16).regOperand(Size.Int16).done();
@@ -1716,7 +1921,7 @@ export class Disassembler {
                 return this.opCode(OpCode.MOV).modrmOperand(this._operandSize).regOperand(Size.Int16, OperandFlags.Segment).done();
 
             case 0x8D: // LEA Gv, M
-                return this.opCode(OpCode.LEA).regOperand(this._operandSize).modrmOperand(this._operandSize, OperandFlags.MustBeMemory | OperandFlags.DontDereference).done();
+                return this.opCode(OpCode.LEA).regOperand(this._operandSize).modrmOperand(this._operandSize, OperandFlags.DontDereference).done();
 
             case 0x8E: // MOV Sw, Ew 
                 return this.opCode(OpCode.MOV).regOperand(Size.Int16, OperandFlags.Segment).modrmOperand(Size.Int16).done();
@@ -1823,10 +2028,10 @@ export class Disassembler {
                 return this.near().opCode(OpCode.RET).done();
 
             case 0xC4: // LES Gv, Mp
-                return this.opCode(OpCode.LES).regOperand(this._operandSize).modrmOperand(this._operandSize, OperandFlags.MustBeMemory).done();
+                return this.opCode(OpCode.LES).regOperand(this._operandSize).modrmOperand(this._operandSize == Size.Int16 ? Size.Int16Int16 : Size.Int16Int32).done();
 
             case 0xC5: // LDS Gv, Mp
-                return this.opCode(OpCode.LDS).regOperand(this._operandSize).modrmOperand(this._operandSize, OperandFlags.MustBeMemory).done();
+                return this.opCode(OpCode.LDS).regOperand(this._operandSize).modrmOperand(this._operandSize == Size.Int16 ? Size.Int16Int16 : Size.Int16Int32).done();
 
             case 0xC6: // MOV Eb, Ib
             case 0xC7: // MOV Ev, Iz
