@@ -45,6 +45,9 @@ export enum OpCode {
     F2XM1,
     FABS,
     FADD,
+    FADDP,
+    FBLD,
+    FBSTP,
     FCHS,
     FCINIT,
     FCLEX,
@@ -58,11 +61,15 @@ export enum OpCode {
     FCMOVU,
     FCOM,
     FCOMI,
+    FCOMIP,
     FCOMP,
+    FCOMPP,
     FCOS,
     FDECSTP,
     FDIV,
+    FDIVP,
     FDIVR,
+    FDIVRP,
     FFREE,
     FIADD,
     FICOM,
@@ -88,6 +95,7 @@ export enum OpCode {
     FLDPI,
     FLDZ,
     FMUL,
+    FMULP,
     FNOP,
     FPATAN,
     FPREM,
@@ -106,10 +114,13 @@ export enum OpCode {
     FSTP,
     FSTSW,
     FSUB,
+    FSUBP,
     FSUBR,
+    FSUBRP,
     FTST,
     FUCOM,
     FUCOMI,
+    FUCOMIP,
     FUCOMP,
     FUCOMPP,
     FYL2X,
@@ -230,6 +241,7 @@ export enum Size {
     Int8,
     Int16,
     Int32,
+    Int64,
     Int16Int16,
     Int16Int32,
     Int32Int32,
@@ -237,6 +249,7 @@ export enum Size {
     Single,
     Double,
     ExtendedReal,
+    PackedBCD,
     PseudoDescriptor6,
     PseudoDescriptor10,
     FloatingPointEnvironment14,
@@ -1541,28 +1554,28 @@ export class Disassembler {
                 if (this.mod(modrm) != 0x3) {
                     switch (this.reg(modrm)) {
                         case 0x0:
-                            return this.opCode(OpCode.FIADD).modrmOperand(this._operandSize).done();
+                            return this.opCode(OpCode.FIADD).modrmOperand(Size.Int32).done();
 
                         case 0x1:
-                            return this.opCode(OpCode.FIMUL).modrmOperand(this._operandSize).done();
+                            return this.opCode(OpCode.FIMUL).modrmOperand(Size.Int32).done();
 
                         case 0x2:
-                            return this.opCode(OpCode.FICOM).modrmOperand(this._operandSize).done();
+                            return this.opCode(OpCode.FICOM).modrmOperand(Size.Int32).done();
 
                         case 0x3:
-                            return this.opCode(OpCode.FICOMP).modrmOperand(this._operandSize).done();
+                            return this.opCode(OpCode.FICOMP).modrmOperand(Size.Int32).done();
 
                         case 0x4:
-                            return this.opCode(OpCode.FISUB).modrmOperand(this._operandSize).done();
+                            return this.opCode(OpCode.FISUB).modrmOperand(Size.Int32).done();
 
                         case 0x5:
-                            return this.opCode(OpCode.FISUBR).modrmOperand(this._operandSize).done();
+                            return this.opCode(OpCode.FISUBR).modrmOperand(Size.Int32).done();
 
                         case 0x6:
-                            return this.opCode(OpCode.FIDIV).modrmOperand(this._operandSize).done();
+                            return this.opCode(OpCode.FIDIV).modrmOperand(Size.Int32).done();
 
                         case 0x7:
-                            return this.opCode(OpCode.FIDIVR).modrmOperand(this._operandSize).done();
+                            return this.opCode(OpCode.FIDIVR).modrmOperand(Size.Int32).done();
                     }
                 }
                 else {
@@ -1594,16 +1607,16 @@ export class Disassembler {
                 if (this.mod(modrm) != 0x3) {
                     switch (this.reg(modrm)) {
                         case 0x0:
-                            return this.opCode(OpCode.FILD).modrmOperand(this._operandSize).done();
+                            return this.opCode(OpCode.FILD).modrmOperand(Size.Int32).done();
 
                         case 0x1:
-                            return this.opCode(OpCode.FISTTP).modrmOperand(this._operandSize).done();
+                            return this.opCode(OpCode.FISTTP).modrmOperand(Size.Int32).done();
 
                         case 0x2:
-                            return this.opCode(OpCode.FIST).modrmOperand(this._operandSize).done();
+                            return this.opCode(OpCode.FIST).modrmOperand(Size.Int32).done();
 
                         case 0x3:
-                            return this.opCode(OpCode.FISTP).modrmOperand(this._operandSize).done();
+                            return this.opCode(OpCode.FISTP).modrmOperand(Size.Int32).done();
 
                         // case 0x4 unused
 
@@ -1756,7 +1769,108 @@ export class Disassembler {
                 }
 
             case 0xDE:
+                if (this.mod(modrm) != 0x3) {
+                    switch (this.reg(modrm)) {
+                        case 0x0:
+                            return this.opCode(OpCode.FIADD).modrmOperand(Size.Int16).done();
+
+                        case 0x1:
+                            return this.opCode(OpCode.FIMUL).modrmOperand(Size.Int16).done();
+
+                        case 0x2:
+                            return this.opCode(OpCode.FICOM).modrmOperand(Size.Int16).done();
+
+                        case 0x3:
+                            return this.opCode(OpCode.FICOMP).modrmOperand(Size.Int16).done();
+
+                        case 0x4:
+                            return this.opCode(OpCode.FISUB).modrmOperand(Size.Int16).done();
+
+                        case 0x5:
+                            return this.opCode(OpCode.FISUBR).modrmOperand(Size.Int16).done();
+
+                        case 0x6:
+                            return this.opCode(OpCode.FIDIV).modrmOperand(Size.Int16).done();
+
+                        case 0x7:
+                            return this.opCode(OpCode.FIDIVR).modrmOperand(Size.Int16).done();
+                    }
+                }
+                else {
+                    switch (this.reg(modrm)) {
+                        case 0x0:
+                            return this.opCode(OpCode.FADDP).floatingPointOperand(this.rm(modrm)).floatingPointOperand(0).done();
+
+                        case 0x1:
+                            return this.opCode(OpCode.FMULP).floatingPointOperand(this.rm(modrm)).floatingPointOperand(0).done();
+
+                        // case 0x2 unused
+
+                        case 0x3:
+                            if (this.rm(modrm) == 0x1) {
+                                return this.opCode(OpCode.FCOMPP).done();
+                            }
+
+                        case 0x4:
+                            return this.opCode(OpCode.FSUBRP).floatingPointOperand(this.rm(modrm)).floatingPointOperand(0).done();
+
+                        case 0x5:
+                            return this.opCode(OpCode.FSUBP).floatingPointOperand(this.rm(modrm)).floatingPointOperand(0).done();
+
+                        case 0x6:
+                            return this.opCode(OpCode.FDIVRP).floatingPointOperand(this.rm(modrm)).floatingPointOperand(0).done();
+
+                        case 0x7:
+                            return this.opCode(OpCode.FDIVP).floatingPointOperand(this.rm(modrm)).floatingPointOperand(0).done();
+                    }
+                }
+
             case 0xDF:
+                if (this.mod(modrm) != 0x3) {
+                    switch (this.reg(modrm)) {
+                        case 0x0:
+                            return this.opCode(OpCode.FILD).modrmOperand(Size.Int16).done();
+
+                        case 0x1:
+                            return this.opCode(OpCode.FISTTP).modrmOperand(Size.Int16).done();
+
+                        case 0x2:
+                            return this.opCode(OpCode.FIST).modrmOperand(Size.Int16).done();
+
+                        case 0x3:
+                            return this.opCode(OpCode.FISTP).modrmOperand(Size.Int16).done();
+
+                        case 0x4:
+                            return this.opCode(OpCode.FBLD).modrmOperand(Size.PackedBCD).done();
+
+                        case 0x5:
+                            return this.opCode(OpCode.FILD).modrmOperand(Size.Int64).done();
+
+                        case 0x6:
+                            return this.opCode(OpCode.FBSTP).modrmOperand(Size.PackedBCD).done();
+
+                        case 0x7:
+                            return this.opCode(OpCode.FISTP).modrmOperand(Size.Int64).done();
+                    }
+                }
+                else {
+                    switch (this.reg(modrm)) {
+                        // case 0x0 - 0x3 unused
+
+                        case 0x4:
+                            if (this.rm(modrm) == 0x0) {
+                                return this.opCode(OpCode.FSTSW).registerOperand(Register.AX).done();
+                            }
+
+                        case 0x5:
+                            return this.opCode(OpCode.FUCOMIP).floatingPointOperand(0).floatingPointOperand(this.rm(modrm)).done();
+
+                        case 0x6:
+                            return this.opCode(OpCode.FCOMIP).floatingPointOperand(0).floatingPointOperand(this.rm(modrm)).done();
+
+                        // case 0x7 unused
+                    }
+                }
         }
 
         throw new LayoutError("internal error");
