@@ -4,7 +4,12 @@ import ts = require("jake-typescript");
 
 directory("lib");
 
-ts.singleFile("lib/disasm.js", ["lib/disasm.ts", "typings/disasm/disasm.d.ts"], { noImplicitAny: true, moduleKind: ts.ModuleKind.commonjs });
+ts.singleFile("lib/disasm.js", ["lib/disasm.ts"],
+{
+    noImplicitAny: true,
+    moduleKind: ts.ModuleKind.commonjs,
+    targetVersion: ts.ESVersion.ES5
+});
 
 task("default", ["lib/disasm.js"]);
 
