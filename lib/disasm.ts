@@ -16,8 +16,8 @@ export enum OpCode {
     AAD,
     AAM,
     AAS,
-    ADD,
     ADC,
+    ADD,
     AND,
     ARPL,
     BOUND,
@@ -49,7 +49,6 @@ export enum OpCode {
     FBLD,
     FBSTP,
     FCHS,
-    FCINIT,
     FCLEX,
     FCMOVB,
     FCMOVBE,
@@ -79,6 +78,7 @@ export enum OpCode {
     FILD,
     FIMUL,
     FINCSTP,
+    FINIT,
     FIST,
     FISTP,
     FISTTP,
@@ -102,12 +102,12 @@ export enum OpCode {
     FPREM1,
     FPTAN,
     FRNDINT,
+    FRSTOR,
     FSAVE,
     FSCALE,
     FSIN,
     FSINCOS,
     FSQRT,
-    FRSTOR,
     FST,
     FSTCW,
     FSTENV,
@@ -123,16 +123,16 @@ export enum OpCode {
     FUCOMIP,
     FUCOMP,
     FUCOMPP,
-    FYL2X,
-    FYL2XP1,
     FXAM,
     FXCH,
     FXTRACT,
+    FYL2X,
+    FYL2XP1,
     HLT,
     IDIV,
-    INC,
     IMUL,
     IN,
+    INC,
     INS,
     INT,
     INTO,
@@ -142,7 +142,6 @@ export enum OpCode {
     JBE,
     JL,
     JLE,
-    JO,
     JMP,
     JNB,
     JNBE,
@@ -152,6 +151,7 @@ export enum OpCode {
     JNP,
     JNS,
     JNZ,
+    JO,
     JP,
     JS,
     JZ,
@@ -326,14 +326,256 @@ export enum RepeatType {
     NotEqual
 }
 
-enum OperandFlags {
-    None = 0x00,
-    DontDereference = 0x01,
-    Segment = 0x02,
-    MustBeRegister = 0x04,
-    ControlRegister = 0x8,
-    DebugRegister = 0x10
+export enum OperandInfoFlags {
+    None = 0x0,
+    Branch = 0x1,
+    Unconditional = 0x2
 }
+
+export class OperandInfo {
+    private _name: string;
+    private _flags: OperandInfoFlags;
+
+    constructor(name: string, flags: OperandInfoFlags = OperandInfoFlags.None) {
+        this._name = name;
+        this._flags = flags;
+    }
+
+    public get name(): string {
+        return this._name;
+    }
+
+    public get flags(): OperandInfoFlags {
+        return this._flags;
+    }
+}
+
+export var operandInfo: OperandInfo[] = [
+    new OperandInfo("Invalid"), // Invalid
+    new OperandInfo("ASCII Adjust After Addition"), // AAA
+    new OperandInfo("ASCII Adjust AX Before Addition"), // AAD
+    new OperandInfo("ASCII Adjust AX After Multiply"), // AAM
+    new OperandInfo("ASCII Adjust AL After Subtraction"), // AAS
+    new OperandInfo("Add with Carry"), // ADC
+    new OperandInfo("Add"), // ADD
+    new OperandInfo("Logical AND"), // AND
+    new OperandInfo("Adjust RPL Field of Segment Selector"), // ARPL
+    new OperandInfo("Check Array Index Against Bounds"), // BOUND
+    new OperandInfo("Bit Scan Forward"), // BSF
+    new OperandInfo("Bit Scan Reverse"), // BSR
+    new OperandInfo("Bit Test"), // BT
+    new OperandInfo("Bit Test and Complement"), // BTC
+    new OperandInfo("Bit Test and Reset"), // BTR
+    new OperandInfo("Bit Test and Set"), // BTS
+    new OperandInfo("Call Procedure", OperandInfoFlags.Branch), // CALL
+    new OperandInfo("Convert Byte to Word"), // CBW
+    new OperandInfo("Clear Carry Flag"), // CLC
+    new OperandInfo("Clear Direction Flag"), // CLD
+    new OperandInfo("Clear Interrupt Flag"), // CLI
+    new OperandInfo("Clear Task-Switched Flag in CR0"), // CLTS
+    new OperandInfo("Complement Carry Flag"), // CMC
+    new OperandInfo("Compare Two Operands"), // CMP
+    new OperandInfo("Compare"), // CMPS
+    new OperandInfo("Convert Word to Doubleword"), // CWD
+    new OperandInfo("Decimal Adjust AL After Addition"), // DAA
+    new OperandInfo("Decimal Adjust AL After Subtraction"), // DAS
+    new OperandInfo("Decrement by 1"), // DEC
+    new OperandInfo("Unsigned Divide"), // DIV
+    new OperandInfo("Make Stack Frame for Procedure Parameters"), // ENTER
+    new OperandInfo("Compute 2^x-1"), // F2XM1
+    new OperandInfo("Absolute Value"), // FABS
+    new OperandInfo("Add"), // FADD
+    new OperandInfo("Add"), // FADDP
+    new OperandInfo("Load Binary Coded Decimal"), // FBLD
+    new OperandInfo("Store BCD Integer and Pop"), // FBSTP
+    new OperandInfo("Change Sign"), // FCHS
+    new OperandInfo("Clear Exceptions"), // FCLEX
+    new OperandInfo("Move If below"), // FCMOVB
+    new OperandInfo("Move If below or equal"), // FCMOVBE
+    new OperandInfo("Move If equal"), // FCMOVE
+    new OperandInfo("Move If not below"), // FCMOVNB
+    new OperandInfo("Move If not below or equal"), // FCMOVNBE
+    new OperandInfo("Move If not equal"), // FCMOVNE
+    new OperandInfo("Move If not unordered"), // FCMOVNU
+    new OperandInfo("Move If unordered"), // FCMOVU
+    new OperandInfo("Compare Floating Point Values"), // FCOM
+    new OperandInfo("Compare Floating Point Values and Set EFLAGS"), // FCOMI
+    new OperandInfo("Compare Floating Point Values and Set EFLAGS"), // FCOMIP
+    new OperandInfo("Compare Floating Point Values"), // FCOMP
+    new OperandInfo("Compare Floating Point Values"), // FCOMPP
+    new OperandInfo("Cosine"), // FCOS
+    new OperandInfo("Decrement Stack-Top Pointer"), // FDECSTP
+    new OperandInfo("Divide"), // FDIV
+    new OperandInfo("Divide"), // FDIVP
+    new OperandInfo("Reverse Divide"), // FDIVR
+    new OperandInfo("Reverse Divide"), // FDIVRP
+    new OperandInfo("Free Floating-Point Register"), // FFREE
+    new OperandInfo("Add"), // FIADD
+    new OperandInfo("Compare Integer"), // FICOM
+    new OperandInfo("Compare Integer"), // FICOMP
+    new OperandInfo("Divide"), // FIDIV
+    new OperandInfo("Reverse Divide"), // FIDIVR
+    new OperandInfo("Load Integer"), // FILD
+    new OperandInfo("Multiply"), // FIMUL
+    new OperandInfo("Increment Stack-Top Pointer"), // FINCSTP
+    new OperandInfo("Initialize Floating-Point Unit"), // FINIT
+    new OperandInfo("Store Integer"), // FIST
+    new OperandInfo("Store Integer"), // FISTP
+    new OperandInfo("Store Integer with Truncation"), // FISTTP
+    new OperandInfo("Subtract"), // FISUB
+    new OperandInfo("Reverse Subtract"), // FISUBR
+    new OperandInfo("Load Floating Point Value"), // FLD
+    new OperandInfo("Load Constant"), // FLD1
+    new OperandInfo("Load x87 FPU Control Word"), // FLDCW
+    new OperandInfo("Load x87 FPU Environment"), // FLDENV
+    new OperandInfo("Load Constant"), // FLDL2E
+    new OperandInfo("Load Constant"), // FLDL2T
+    new OperandInfo("Load Constant"), // FLDLG2
+    new OperandInfo("Load Constant"), // FLDLN2
+    new OperandInfo("Load Constant"), // FLDPI
+    new OperandInfo("Load Constant"), // FLDZ
+    new OperandInfo("Multiply"), // FMUL
+    new OperandInfo("Multiply"), // FMULP
+    new OperandInfo("No Operation"), // FNOP
+    new OperandInfo("Partial Arctangent"), // FPATAN
+    new OperandInfo("Partial Remainder"), // FPREM
+    new OperandInfo("Partial Remainder"), // FPREM1
+    new OperandInfo("Partial Tangent"), // FPTAN
+    new OperandInfo("Round to Integer"), // FRNDINT
+    new OperandInfo("Restore x87 FPU State"), // FRSTOR
+    new OperandInfo("Store x87 FPU State"), // FSAVE
+    new OperandInfo("Scale"), // FSCALE
+    new OperandInfo("Sine"), // FSIN
+    new OperandInfo("Sine and Cosine"), // FSINCOS
+    new OperandInfo("Square Root"), // FSQRT
+    new OperandInfo("Store Floating Point Value"), // FST
+    new OperandInfo("Store x87 FPU Control Word"), // FSTCW
+    new OperandInfo("Store x87 FPU Environment"), // FSTENV
+    new OperandInfo("Store Floating Point Value"), // FSTP
+    new OperandInfo("Store x87 FPU Status Word"), // FSTSW
+    new OperandInfo("Subtract"), // FSUB
+    new OperandInfo("Subtract"), // FSUBP
+    new OperandInfo("Reverse Subtract"), // FSUBR
+    new OperandInfo("Reverse Subtract"), // FSUBRP
+    new OperandInfo("TEST"), // FTST
+    new OperandInfo("Unordered Compare Floating Point Values"), // FUCOM
+    new OperandInfo("Compare Floating Point Values and Set EFLAGS"), // FUCOMI
+    new OperandInfo("Compare Floating Point Values and Set EFLAGS"), // FUCOMIP
+    new OperandInfo("Unordered Compare Floating Point Values"), // FUCOMP
+    new OperandInfo("Unordered Compare Floating Point Values"), // FUCOMPP
+    new OperandInfo("Examine ModR/M"), // FXAM
+    new OperandInfo("Exchange Register Contents"), // FXCH
+    new OperandInfo("Extract Exponent and Significand"), // FXTRACT
+    new OperandInfo("Compute y * log2x"), // FYL2X
+    new OperandInfo("Compute y * log2(x+1)"), // FYL2XP1
+    new OperandInfo("Halt"), // HLT
+    new OperandInfo("Signed Divide"), // IDIV
+    new OperandInfo("Signed Multiply"), // IMUL
+    new OperandInfo("Input from Port"), // IN
+    new OperandInfo("Increment by 1"), // INC
+    new OperandInfo("Input from Port to String"), // INS
+    new OperandInfo("Call to Interrupt Procedure"), // INT
+    new OperandInfo("Call to Interrupt Procedure"), // INTO
+    new OperandInfo("Interrupt Return"), // IRET
+    new OperandInfo("Jump If (E)CX register is 0", OperandInfoFlags.Branch), // JCXZ
+    new OperandInfo("Jump If below", OperandInfoFlags.Branch), // JB
+    new OperandInfo("Jump If below or equal", OperandInfoFlags.Branch), // JBE
+    new OperandInfo("Jump If less", OperandInfoFlags.Branch), // JL
+    new OperandInfo("Jump If less or equal", OperandInfoFlags.Branch), // JLE
+    new OperandInfo("Jump", OperandInfoFlags.Branch | OperandInfoFlags.Unconditional), // JMP
+    new OperandInfo("Jump If not below", OperandInfoFlags.Branch), // JNB
+    new OperandInfo("Jump If not below or equal", OperandInfoFlags.Branch), // JNBE
+    new OperandInfo("Jump If not less", OperandInfoFlags.Branch), // JNL
+    new OperandInfo("Jump If not less or equal", OperandInfoFlags.Branch), // JNLE
+    new OperandInfo("Jump If not overflow", OperandInfoFlags.Branch), // JNO
+    new OperandInfo("Jump If not parity", OperandInfoFlags.Branch), // JNP
+    new OperandInfo("Jump If not sign", OperandInfoFlags.Branch), // JNS
+    new OperandInfo("Jump If not zero", OperandInfoFlags.Branch), // JNZ
+    new OperandInfo("Jump If overflow", OperandInfoFlags.Branch), // JO
+    new OperandInfo("Jump If parity", OperandInfoFlags.Branch), // JP
+    new OperandInfo("Jump If sign", OperandInfoFlags.Branch), // JS
+    new OperandInfo("Jump If zero", OperandInfoFlags.Branch), // JZ
+    new OperandInfo("Load Status Flags into AH Register"), // LAHF
+    new OperandInfo("Load Access Rights Byte"), // LAR
+    new OperandInfo("Load Far Pointer"), // LDS
+    new OperandInfo("Load Effective Address"), // LEA
+    new OperandInfo("High Level Procedure Exit"), // LEAVE
+    new OperandInfo("Load Far Pointer"), // LES
+    new OperandInfo("Load Far Pointer"), // LFS
+    new OperandInfo("Load Global Descriptor Table Register"), // LGDT
+    new OperandInfo("Load Far Pointer"), // LGS
+    new OperandInfo("Load Interrupt Descriptor Table Register"), // LIDT
+    new OperandInfo("Load Machine Status Word"), // LMSW
+    new OperandInfo("Load String"), // LODS
+    new OperandInfo("Loop According to ECX Counter", OperandInfoFlags.Branch), // LOOP
+    new OperandInfo("Loop According to ECX Counter", OperandInfoFlags.Branch), // LOOPE
+    new OperandInfo("Loop According to ECX Counter", OperandInfoFlags.Branch), // LOOPNE
+    new OperandInfo("Load Segment Limit"), // LSL
+    new OperandInfo("Load Far Pointer"), // LSS
+    new OperandInfo("Load Task Register"), // LTR
+    new OperandInfo("Move"), // MOV
+    new OperandInfo("Move Data from String to String"), // MOVS
+    new OperandInfo("Move with Sign-Extension"), // MOVSX
+    new OperandInfo("Move with Zero-Extend"), // MOVZX
+    new OperandInfo("Unsigned Multiply"), // MUL
+    new OperandInfo("Two's Complement Negation"), // NEG
+    new OperandInfo("No Operation"), // NOP
+    new OperandInfo("One's Complement Negation"), // NOT
+    new OperandInfo("Logical Inclusive OR"), // OR
+    new OperandInfo("Output to Port"), // OUT
+    new OperandInfo("Output String to Port"), // OUTS
+    new OperandInfo("Pop a Value from the Stack"), // POP
+    new OperandInfo("Pop All General-Purpose Registers"), // POPA
+    new OperandInfo("Pop Stack into EFLAGS Register"), // POPF
+    new OperandInfo("Push Word or Doubleword Onto the Stack"), // PUSH
+    new OperandInfo("Push All General-Purpose Registers"), // PUSHA
+    new OperandInfo("Push EFLAGS Register onto the Stack"), // PUSHF
+    new OperandInfo("Rotate left once (with carry)"), // RCL
+    new OperandInfo("Rotate right once (with carry)"), // RCR
+    new OperandInfo("Return from Procedure", OperandInfoFlags.Branch | OperandInfoFlags.Unconditional), // RET
+    new OperandInfo("Rotate left once"), // ROL
+    new OperandInfo("Rotate right once"), // ROR
+    new OperandInfo("Store AH into Flags"), // SAHF
+    new OperandInfo("Signed shift right once"), // SAR
+    new OperandInfo("Integer Subtraction with Borrow"), // SBB
+    new OperandInfo("Scan String"), // SCAS
+    new OperandInfo("Set byte If below"), // SETB
+    new OperandInfo("Set byte If below or equal"), // SETBE
+    new OperandInfo("Set byte If less"), // SETL
+    new OperandInfo("Set byte If less or equal"), // SETLE
+    new OperandInfo("Set byte If overflow"), // SETO
+    new OperandInfo("Set byte If not below"), // SETNB
+    new OperandInfo("Set byte If not below or equal"), // SETNBE
+    new OperandInfo("Set byte If not less"), // SETNL
+    new OperandInfo("Set byte If not less or equal"), // SETNLE
+    new OperandInfo("Set byte If not overflow"), // SETNO
+    new OperandInfo("Set byte If not parity"), // SETNP
+    new OperandInfo("Set byte If not sign"), // SETNS
+    new OperandInfo("Set byte If not zero"), // SETNZ
+    new OperandInfo("Set byte If parity"), // SETP
+    new OperandInfo("Set byte If sign"), // SETS
+    new OperandInfo("Set byte If zero"), // SETZ
+    new OperandInfo("Store Global Descriptor Table Register"), // SGDT
+    new OperandInfo("Shift left once"), // SHL
+    new OperandInfo("Double Precision Shift Left"), // SHLD
+    new OperandInfo("Unsigned shift right once"), // SHR
+    new OperandInfo("Double Precision Shift Right"), // SHRD
+    new OperandInfo("Store Interrupt Descriptor Table Register"), // SIDT
+    new OperandInfo("Store Local Descriptor Table Register"), // SLDT
+    new OperandInfo("Store Machine Status Word"), // SMSW
+    new OperandInfo("Set Carry Flag"), // STC
+    new OperandInfo("Set Direction Flag"), // STD
+    new OperandInfo("Set Interrupt Flag"), // STI
+    new OperandInfo("Store String"), // STOS
+    new OperandInfo("Subtract"), // SUB
+    new OperandInfo("Logical Compare"), // TEST
+    new OperandInfo("Verify a Segment for Reading"), // VERR
+    new OperandInfo("Verify a Segment for Writing"), // VERW
+    new OperandInfo("Wait"), // WAIT
+    new OperandInfo("Exchange Register/Memory with Register"), // XCHG
+    new OperandInfo("Table Look-up Translation"), // XLAT
+    new OperandInfo("Logical Exclusive OR") // XOR
+];
 
 export class Operand {
     private _type: OperandType;
@@ -609,6 +851,15 @@ export class Instruction {
     public get operand3(): Operand {
         return this._operand3;
     }
+}
+
+enum OperandFlags {
+    None = 0x00,
+    DontDereference = 0x01,
+    Segment = 0x02,
+    MustBeRegister = 0x04,
+    ControlRegister = 0x8,
+    DebugRegister = 0x10
 }
 
 export class Disassembler {
@@ -1651,7 +1902,7 @@ export class Disassembler {
                                     return this.opCode(OpCode.FCLEX).done();
 
                                 case 0x3:
-                                    return this.opCode(OpCode.FCINIT).done();
+                                    return this.opCode(OpCode.FINIT).done();
 
                                 // case 0x4 - 0x7 unused
                             }
