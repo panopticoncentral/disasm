@@ -7,6 +7,7 @@ directory("lib");
 ts.singleFile("lib/disasm.js", ["lib/disasm.ts"],
 {
     noImplicitAny: true,
+    generateDeclarationFile: true,
     moduleKind: ts.ModuleKind.commonjs,
     targetVersion: ts.ESVersion.ES5
 });
