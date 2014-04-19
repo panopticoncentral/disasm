@@ -1,4 +1,5 @@
 export interface IByteReader {
+    address(): number;
     read(): number;
 }
 
@@ -805,6 +806,7 @@ export class FloatingPointStackOperand extends Operand {
 }
 
 export class Instruction {
+    private _address: number;
     private _opCode: OpCode;
     private _isLocked: boolean;
     private _isNear: boolean;
@@ -814,7 +816,8 @@ export class Instruction {
     private _operand2: Operand;
     private _operand3: Operand;
 
-    constructor(opCode: OpCode, isLocked: boolean, isNear: boolean, repeatType: RepeatType, operand1: Operand = null, operand2: Operand = null, operand3: Operand = null) {
+    constructor(address: number, opCode: OpCode, isLocked: boolean, isNear: boolean, repeatType: RepeatType, operand1: Operand = null, operand2: Operand = null, operand3: Operand = null) {
+        this._address = address;
         this._opCode = opCode;
         this._isLocked = isLocked;
         this._isNear = isNear;
@@ -822,6 +825,10 @@ export class Instruction {
         this._operand1 = operand1;
         this._operand2 = operand2;
         this._operand3 = operand3;
+    }
+
+    public get address(): number {
+        return this._address;
     }
 
     public get opCode(): OpCode {
@@ -880,6 +887,7 @@ export class Disassembler {
     private _operand1: Operand;
     private _operand2: Operand;
     private _operand3: Operand;
+    private _address: number;
 
     constructor(segmentAddressMode: Size) {
         if (segmentAddressMode != Size.Int16 && segmentAddressMode != Size.Int32) {
@@ -893,6 +901,7 @@ export class Disassembler {
         if (this._reader != null) {
             throw new LayoutError("internal error");
         }
+        this._address = reader.address();
         this._opCode = OpCode.Invalid;
         this._reader = reader;
         this._operandSize = this._segmentAddressMode;
@@ -1196,6 +1205,10 @@ export class Disassembler {
 
     private immediateOperand(operandSize: Size): Disassembler {
         return this.nextOperand(this.immediate(operandSize));
+    }
+
+    private ripOperand(operandSize: Size): Disassembler {
+        return this.nextOperand(new ImmediateOperand(this.readImmediate(operandSize, true) + this._reader.address(), this._addressMode));
     }
 
     private displacementOperand(operandSize: Size): Disassembler {
@@ -1541,7 +1554,7 @@ export class Disassembler {
 
         this._reader = null;
 
-        return new Instruction(this._opCode, this._isLocked, this._isNear, this._repeatType, this._operand1, this._operand2, this._operand3);
+        return new Instruction(this._address, this._opCode, this._isLocked, this._isNear, this._repeatType, this._operand1, this._operand2, this._operand3);
     }
 
     private group3(first: number): Instruction {
@@ -2180,7 +2193,7 @@ export class Disassembler {
             case 0x8D: // JNL Jv
             case 0x8E: // JLE Jv
             case 0x8F: // JNLE Jv
-                return this.jumpOpCode(second - 0x80).displacementOperand(this._operandSize).done();
+                return this.jumpOpCode(second - 0x80).ripOperand(this._operandSize).done();
 
             case 0x90: // SETO Eb
             case 0x91: // SETNO Eb
@@ -2505,7 +2518,7 @@ export class Disassembler {
             case 0x7D: // JNL Jb
             case 0x7E: // JLE Jb
             case 0x7F: // JNLE Jb
-                return this.jumpOpCode(first - 0x70).displacementOperand(Size.Int8).done();
+                return this.jumpOpCode(first - 0x70).ripOperand(Size.Int8).done();
 
             case 0x80: // Group 1 Eb, Ib
             case 0x81: // Group 1 Ev, Iz
@@ -2706,16 +2719,16 @@ export class Disassembler {
                 return this.escape(first);
 
             case 0xE0: // LOOPNE Jb
-                return this.opCode(OpCode.LOOPNE).displacementOperand(Size.Int8).done();
+                return this.opCode(OpCode.LOOPNE).ripOperand(Size.Int8).done();
 
             case 0xE1: // LOOPE Jb
-                return this.opCode(OpCode.LOOPE).displacementOperand(Size.Int8).done();
+                return this.opCode(OpCode.LOOPE).ripOperand(Size.Int8).done();
 
             case 0xE2: // LOOP Jb
-                return this.opCode(OpCode.LOOP).displacementOperand(Size.Int8).done();
+                return this.opCode(OpCode.LOOP).ripOperand(Size.Int8).done();
 
             case 0xE3: // JCXZ Jb
-                return this.opCode(OpCode.JCXZ).displacementOperand(Size.Int8).done();
+                return this.opCode(OpCode.JCXZ).ripOperand(Size.Int8).done();
 
             case 0xE4: // IN AL, Ib
             case 0xE5: // IN eAX, Ib
@@ -2728,14 +2741,14 @@ export class Disassembler {
             case 0xE8: // CALL Av
                 return this.opCode(OpCode.CALL).callOperand().done();
 
-            case 0xE9: // JNP Jv
-                return this.opCode(OpCode.JNP).displacementOperand(this._operandSize).done();
+            case 0xE9: // JMP Jv
+                return this.opCode(OpCode.JMP).ripOperand(this._operandSize).done();
 
-            case 0xEA: // JNP Ap
-                return this.opCode(OpCode.JNP).callOperand(OperandFlags.Segment).done();
+            case 0xEA: // JMP Ap
+                return this.opCode(OpCode.JMP).callOperand(OperandFlags.Segment).done();
 
-            case 0xEB: // JNP Jb
-                return this.opCode(OpCode.JNP).displacementOperand(Size.Int8).done();
+            case 0xEB: // JMP Jb
+                return this.opCode(OpCode.JMP).ripOperand(Size.Int8).done();
 
             case 0xEC: // IN AL, DX
             case 0xED: // IN eAX, DX
