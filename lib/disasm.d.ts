@@ -327,23 +327,23 @@ declare module "disasm" {
         NotEqual = 2,
     }
 
-    export enum OperandInfoFlags {
+    export enum OpcodeInfoFlags {
         None = 0,
         Branch = 1,
         Unconditional = 2,
     }
 
-    export class OperandInfo {
+    export class OpcodeInfo {
         private _name;
         private _flags;
 
-        constructor(name: string, flags?: OperandInfoFlags);
+        constructor(name: string, flags?: OpcodeInfoFlags);
 
         public name: string;
-        public flags: OperandInfoFlags;
+        public flags: OpcodeInfoFlags;
     }
 
-    export var operandInfo: OperandInfo[];
+    export var opcodeInfo: OpcodeInfo[];
 
     export class Operand {
         private _type;
